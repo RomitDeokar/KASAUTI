@@ -16,14 +16,14 @@ separation is enforced by a static guard, not by a promise in a README.
 ```bash
 git clone https://github.com/RomitDeokar/KASAUTI.git && cd KASAUTI
 make demo          # no API key, no network, no install beyond stdlib+pytest
-make test          # 707 tests; wants hypothesis, and says so if it is missing
+make test          # 709 tests; wants hypothesis, and says so if it is missing
 python -m kasauti judge examples/medianama_demo.json   # or your own transcript
 ```
 
 That second line used to exit 2 and run **zero** tests without `hypothesis`
 installed — the claim on the line above it was true of `make demo` and false
 of `make test`. It is now true of both: the property tests degrade to reported
-skips and the 691 deterministic tests still run. See
+skips and the 693 deterministic tests still run. See
 [FAILURES.md](FAILURES.md) #12, which is the entry I'd read first if I were
 reviewing this, because it is a bug in the repo's own first instruction.
 
@@ -56,7 +56,7 @@ make demo        # the full suite + the Agent Studio launch-demo exhibit
 make consortium  # abuse invisible to every merchant involved
 make equivalence # certification == enforcement, proven on all 98
 make baselines   # the two approaches KASAUTI claims to beat
-make test        # 707 tests (691 of them with stdlib + pytest alone)
+make test        # 709 tests (693 of them with stdlib + pytest alone)
 make judge F=t.json  # judge YOUR transcript: exit 0 pass / 1 blocked / 2 unparseable
 ```
 
@@ -225,7 +225,7 @@ written as things broke rather than reconstructed afterwards. The pattern
 worth noticing is that **every bug in it was found by tooling I built to
 attack my own work**, not by re-reading code.
 
-Nineteen entries now. #17 and #18 are the two an *external* reviewer found
+Twenty entries now. #20 is the last one, found on the final pre-submission pass: the CLI refusing a Windows-authored file over a byte-order mark. #17 and #18 are the two an *external* reviewer found
 by running the suite for real: a property test that generated a 100.01%
 discount my own schema correctly refused, and — the one that stings — the
 email branch of the identifier validator I wrote to fix #9 accepting
@@ -299,8 +299,9 @@ kasauti/
   baselines.py     the systems KASAUTI claims to beat
 corpus/            98 transcripts + histories + consortium fixtures
 examples/          two corpus cases exported as JSON, to copy from
-tests/             707 tests, incl. property-based, regression, round-trip
+tests/             709 tests, incl. property-based, regression, round-trip
 docs/INTERPRETATION.md   prose → predicate, every judgement call
+docs/PITCH.md      the 5-minute video as a re-runnable terminal session
 FAILURES.md        what broke
 ci/               GitHub Actions workflow: full env + bare stdlib env
 NOT_CHECKED.md     what this does not prove
@@ -315,7 +316,7 @@ pip install -r requirements.txt   # pytest + hypothesis, for tests only
 make demo
 ```
 
-`hypothesis` is genuinely optional. Without it, `make test` runs 691 tests
+`hypothesis` is genuinely optional. Without it, `make test` runs 693 tests
 and reports the 16 property-based ones as skipped with an install hint,
 rather than dying at collection as it used to. What it will never do is let a
 property test *pass* while the engine that checks it is absent — a skip is

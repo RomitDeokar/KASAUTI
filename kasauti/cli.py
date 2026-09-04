@@ -31,9 +31,15 @@ EXIT_CLEAN, EXIT_BLOCKED, EXIT_UNPARSEABLE = 0, 1, 2
 
 
 def _read(src: str) -> str:
+    # utf-8-sig, not utf-8: a transcript saved from Windows Notepad or exported
+    # by Excel carries a byte-order mark, and json.loads refuses it with
+    # "Unexpected UTF-8 BOM". That is a REFUSED (exit 2) on a perfectly valid
+    # transcript -- the tool telling a real integrator their file is garbage
+    # when the only thing wrong is three invisible bytes. FAILURES.md #20.
     if src == "-":
-        return sys.stdin.read()
-    return Path(src).read_text(encoding="utf-8")
+        raw = sys.stdin.buffer.read()
+        return raw.decode("utf-8-sig")
+    return Path(src).read_text(encoding="utf-8-sig")
 
 
 def cmd_judge(args: argparse.Namespace) -> int:

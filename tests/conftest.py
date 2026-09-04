@@ -21,7 +21,8 @@ Two honest options existed:
 I did both. `requirements.txt` still lists hypothesis because the property
 tests are part of the real suite and I want them run. But their absence now
 degrades to a *reported skip* with a message that says how to get them, and
-the deterministic 371 still execute and still prove what they proved.
+the deterministic tests (691 at time of writing) still execute and still
+prove what they proved. The exact count moves; `make test` prints it.
 
 The general lesson, which is the same one as FAILURES.md #7: a claim in a
 README is a test that nobody runs. `test_readme_stdlib_claim_holds` in

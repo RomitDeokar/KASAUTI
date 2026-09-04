@@ -963,3 +963,46 @@ your own data is one you cannot trust *on* your own data.
 full environment:       707 passed,  80 skipped, exit 0
 bare stdlib + pytest:   691 passed,  96 skipped, exit 0
 ```
+
+---
+
+## #20 — The CLI refused a valid transcript over three invisible bytes
+
+**What broke.** Final pre-submission pass: take the shipped example, save it
+the way a merchant integrator on Windows actually would (Notepad, "UTF-8"),
+and feed it back:
+
+```
+$ python -m kasauti judge clean_overnight_window.json
+REFUSED (not judged): $: not valid JSON: Unexpected UTF-8 BOM (decode using utf-8-sig)
+exit 2
+```
+
+Notepad, Excel-to-JSON exporters and several .NET serialisers prepend a
+byte-order mark. `Path.read_text(encoding="utf-8")` keeps it, `json.loads`
+rejects it. So the tool told an integrator their perfectly valid transcript
+was garbage — the exact wrong message, one day after #19 made "you can
+judge your own transcript" the headline feature.
+
+**Why this is not a nit.** Exit 2 exists so a CI gate can distinguish "this
+agent is fine" from "I could not read this". A spurious exit 2 on every
+Windows-authored file means the gate is red for a whole class of users and
+the message points them at their JSON, not at their editor. That is the
+`#12` failure mode again — the repo's own first instruction failing in an
+environment I had not run — one layer down.
+
+**Fix.** `cli._read` decodes with `utf-8-sig` for both files and stdin
+(`sys.stdin.buffer`, so the BOM is stripped before the text layer sees it).
+Two tests in `test_io.py`: a BOM-prefixed clean file judges PASS with the
+*same verdict hash* as the clean corpus case, and a BOM-prefixed stdin
+judges BLOCKED without a REFUSED line.
+
+**Lesson.** #19 proved the engine could accept external input. It did not
+prove it could accept the input external tools *produce*. Round-tripping my
+own serialiser's output through my own parser tested the format; it never
+tested a file I did not write.
+
+```
+full environment:       709 passed,  80 skipped, exit 0
+bare stdlib + pytest:   693 passed,  96 skipped, exit 0
+```
