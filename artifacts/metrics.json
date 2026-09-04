@@ -1,21 +1,21 @@
 {
-  "corpus_digest": "e7137bfbc774bd18",
-  "n_transcripts": 89,
+  "corpus_digest": "4d02483f42b09c7d",
+  "n_transcripts": 98,
   "origins": {
-    "handwritten": 11,
-    "hard_negative": 12,
+    "handwritten": 17,
+    "hard_negative": 15,
     "provenance": 6,
     "adversary": 60
   },
   "micro": {
-    "tp": 131,
+    "tp": 137,
     "fp": 0,
     "fn": 0,
     "precision": 1.0,
     "recall": 1.0
   },
   "exact_match_rate": 1.0,
-  "clean_transcripts": 15,
+  "clean_transcripts": 18,
   "clean_wrongly_blocked": 0,
   "false_positive_rate_on_clean": 0.0,
   "per_rule": {
@@ -77,6 +77,20 @@
     },
     "CHANNEL_NOT_PERMITTED": {
       "tp": 13,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "MANDATE_RETRY_BREACH": {
+      "tp": 4,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "HARDSHIP_SIGNAL_IGNORED": {
+      "tp": 2,
       "fp": 0,
       "fn": 0,
       "precision": 1.0,

@@ -139,6 +139,14 @@ def test_salt_changes_the_key():
     "98765",        # too short
     "98765432101",  # too long
     "abc",
+    # FAILURES.md #18 -- email-shaped strings that are not emails. Each one
+    # used to hash to a confident-looking join key.
+    "@a.com",       # empty local part
+    "a@.com",       # empty host label before the dot
+    "@.com",        # both empty
+    "a@b@c.com",    # two @s
+    "ab@com",       # no dot in the domain at all
+    "ab@c.com.",    # trailing dot => empty final label
 ])
 def test_degenerate_identifiers_are_refused(bad):
     """Every one of these used to produce a valid-looking join key.
@@ -172,7 +180,7 @@ def test_valid_identifiers_still_accepted():
     and every test above would still pass.
     """
     for good in ("9876543210", "6123456789", "7000000001",
-                 "A@B.com", "user.name@shop.co.in"):
+                 "A@B.com", "user.name@shop.co.in", "x+tag@mail.example"):
         assert len(join_key(good, SALT)) == 16
 
 

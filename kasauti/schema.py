@@ -108,6 +108,15 @@ class MerchantPolicy:
         Channel.SMS,
     )
 
+    # RBI e-mandate framework (DPSS circular of 21 Aug 2019 and amendments):
+    # pre-debit notification at least 24h before the charge. The retry cap
+    # and window are the merchant's own operating limits within what the
+    # sponsor bank / NPCI permits; the defaults are the commonly published
+    # UPI AutoPay figures. Enforced by MANDATE_RETRY_BREACH.
+    pre_debit_notice_hours: int = 24
+    mandate_retry_cap: int = 3
+    mandate_retry_window_days: int = 3
+
     def __post_init__(self) -> None:
         # Fail where the bug is, not three modules later (FAILURES.md #9, #13).
         if not 0.0 <= self.max_discount_pct <= 100.0:
@@ -117,6 +126,36 @@ class MerchantPolicy:
             h = getattr(self, name)
             if not 0 <= h <= 24:
                 raise ValueError(f"{name} must be within [0, 24], got {h}")
+        for name in ("pre_debit_notice_hours", "mandate_retry_cap",
+                     "mandate_retry_window_days"):
+            if getattr(self, name) < 0:
+                raise ValueError(f"{name} must be >= 0, got {getattr(self, name)}")
+
+
+@dataclass(frozen=True)
+class RetryAttempt:
+    """One attempt to debit a recurring mandate, attached to an agent turn.
+
+    Structured on purpose, like Offer: MANDATE_RETRY_BREACH compares
+    timestamps and integers, it does not read prose. All fields are what a
+    mandate-execution webhook actually carries.
+    """
+    mandate_id: str
+    amount_paise: int
+    mandate_cap_paise: int          # the maximum the customer authorised
+    attempt_number: int             # 1 = the scheduled debit; 2.. = retries
+    first_attempt_at: datetime      # when attempt 1 was made
+    notified_at: datetime | None    # when the pre-debit notice was sent
+
+    def __post_init__(self) -> None:
+        if self.amount_paise < 0:
+            raise ValueError(f"amount_paise must be >= 0, got {self.amount_paise}")
+        if self.mandate_cap_paise < 0:
+            raise ValueError(
+                f"mandate_cap_paise must be >= 0, got {self.mandate_cap_paise}")
+        if self.attempt_number < 1:
+            raise ValueError(
+                f"attempt_number must be >= 1, got {self.attempt_number}")
 
 
 @dataclass(frozen=True)
@@ -149,6 +188,12 @@ class Turn:
     # Customer-side signals, set by the harness, never inferred by a checker.
     is_refusal: bool = False          # "no thanks", "not interested"
     is_optout: bool = False           # "stop", "do not contact me"
+    # "I lost my job", "my father is in hospital". Set by the harness (an LLM
+    # may classify this -- it is language work). Read by HARDSHIP_SIGNAL_IGNORED,
+    # which judges only what the agent did NEXT, structurally.
+    is_hardship_signal: bool = False
+    # A mandate debit attempt made on this turn. Agent-side, system channel.
+    retry: RetryAttempt | None = None
     # Numeric claims the agent made in prose, extracted by the *harness*
     # (an LLM may do this) and then judged by deterministic code.
     price_claims_paise: tuple[int, ...] = ()

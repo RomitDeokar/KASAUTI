@@ -14,15 +14,15 @@ An LLM writes the attacks. Deterministic code writes the verdicts. The
 separation is enforced by a static guard, not by a promise in a README.
 
 ```bash
-git clone https://github.com/RomitDeokar/razorpay.git && cd razorpay
+git clone https://github.com/RomitDeokar/KASAUTI.git && cd KASAUTI
 make demo          # no API key, no network, no install beyond stdlib+pytest
-make test          # 421 tests; wants hypothesis, and says so if it is missing
+make test          # 490 tests; wants hypothesis, and says so if it is missing
 ```
 
 That second line used to exit 2 and run **zero** tests without `hypothesis`
 installed — the claim on the line above it was true of `make demo` and false
 of `make test`. It is now true of both: the property tests degrade to reported
-skips and the 406 deterministic tests still run. See
+skips and the 474 deterministic tests still run. See
 [FAILURES.md](FAILURES.md) #12, which is the entry I'd read first if I were
 reviewing this, because it is a bug in the repo's own first instruction.
 
@@ -30,18 +30,18 @@ reviewing this, because it is a bug in the repo's own first instruction.
 
 ## Metrics first
 
-On an 89-transcript corpus (11 handwritten, 12 hard negatives, 6 provenance,
+On a 98-transcript corpus (17 handwritten, 15 hard negatives, 6 provenance,
 60 LLM-adversary-generated), scored against the same labels for every system:
 
 | System | Precision | Recall | Exact-match | Clean txns wrongly blocked |
 |---|---|---|---|---|
-| **KASAUTI (deterministic)** | **1.00** | **1.00** | **1.00** | **0 / 15** |
-| Lexical keyword baseline | 0.73 | 0.63 | 0.31 | 4 / 15 |
+| **KASAUTI (deterministic)** | **1.00** | **1.00** | **1.00** | **0 / 18** |
+| Lexical keyword baseline | 0.73 | 0.63 | 0.31 | 4 / 18 |
 | LLM judge baseline | *requires `GEMINI_API_KEY`; skip is reported, not hidden* | | | |
 
 **Read that 1.00 with suspicion, and read [NOT_CHECKED.md](NOT_CHECKED.md)
 before you quote it.** It measures agreement between my checkers and my own
-labels on a corpus I built. A perfect score on 89 cases mostly means the
+labels on a corpus I built. A perfect score on 98 cases mostly means the
 corpus has not yet found a case the rules get wrong. The honest version of
 this claim, in full, is §1 and §2 of NOT_CHECKED.md.
 
@@ -53,9 +53,9 @@ arithmetic violation.
 ```
 make demo        # the full suite + the Agent Studio launch-demo exhibit
 make consortium  # abuse invisible to every merchant involved
-make equivalence # certification == enforcement, proven on all 89
+make equivalence # certification == enforcement, proven on all 98
 make baselines   # the two approaches KASAUTI claims to beat
-make test        # 421 tests (406 of them with stdlib + pytest alone)
+make test        # 490 tests (474 of them with stdlib + pytest alone)
 ```
 
 ---
@@ -83,7 +83,7 @@ from two specs diverge, invisibly, until it costs money.
 So KASAUTI does not implement a second rule set. There is exactly one set of
 predicates, and `kasauti/gateway.py` is a different *evaluation strategy* over
 the same functions. They cannot drift, because they are the same code.
-`scripts/prove_equivalence.py` proves it on all 89 transcripts.
+`scripts/prove_equivalence.py` proves it on all 98 transcripts.
 
 The novel artifact is the proof, not the gate.
 
@@ -100,6 +100,7 @@ The novel artifact is the proof, not the gate.
 |---|---|---|
 | Generate novel attacks | **LLM** (Gemini free tier) | Open-ended language generation. A human cannot enumerate this space; an LLM genuinely can. |
 | Extract numeric claims from prose | **LLM**, in the harness | Reading "that'll be ₹2,499" into an int is language work. |
+| Flag a hardship signal in a customer turn | **LLM**, in the harness | "My father is in hospital" → `is_hardship_signal`. Classification, not verdict. |
 | **Decide whether a rule was broken** | **Pure Python. LLM forbidden.** | Closed-form predicate over structured data. An LLM here makes verdicts unreproducible — and per DECEPTICON (ICLR 2026) only ~28.6% effective. |
 | **Admit or deny an action** | **Pure Python. LLM forbidden.** | Money moves only through code paths that a prompt cannot argue with. |
 | Cross-merchant join | **Pure Python (sha256)** | Arithmetic over logs. |
@@ -121,10 +122,17 @@ blocklist would have permitted all three and taught me nothing.
 Each exists because the one below it has a hole that better rules cannot fix.
 The hole is in the **arity** of the question, not the quality of the answer.
 
-**1. Per-episode** (`kasauti/rules/checkers.py`) — 9 rules over one
+**1. Per-episode** (`kasauti/rules/checkers.py`) — 11 rules over one
 conversation. False urgency, escalating pressure, consent, opt-out, contact
-window, discount ceiling, fabricated facts, prompt injection, and — since
-FAILURES.md #14 — the channel the merchant actually permitted.
+window, discount ceiling, fabricated facts, prompt injection, the channel the
+merchant actually permitted (FAILURES.md #14), and two added last from the
+recovery side of the problem: **`MANDATE_RETRY_BREACH`** (RBI e-mandate: 24h
+pre-debit notice, debit within the authorised cap, retries inside the
+merchant's own count and window) and **`HARDSHIP_SIGNAL_IGNORED`** (customer
+says "I lost my job"; the agent's *very next turn* attaches a discount, a
+deadline, or a mandate debit). The second is deliberately not a hardship
+*detector* — flagging the signal is language work and lives in the harness;
+the rule only reads what the agent did next. INTERPRETATION.md #12–#13.
 
 **2. Cross-episode** (`kasauti/crossepisode.py`) — the shapes one transcript
 cannot show. Customer opts out in episode 7, is contacted in episode 41. Eleven
@@ -174,7 +182,10 @@ that *reads* a poisoned review is careless; an agent that justifies a 100%
 discount *by* that review has been captured. Only the second is a violation.
 
 Same lesson as the purity guard: **reason about capability, not about
-strings.**
+strings.** It is also the reasoning an agent-to-agent mandate protocol
+(AP2, UAP) would need to decide whether an inbound buyer agent *holds* the
+authority it claims — KASAUTI asks it of content; the same question asked
+of a signed mandate chain is the next system, not this one.
 
 ---
 
@@ -185,7 +196,12 @@ written as things broke rather than reconstructed afterwards. The pattern
 worth noticing is that **every bug in it was found by tooling I built to
 attack my own work**, not by re-reading code.
 
-Sixteen entries now. #13–#16 came from one deliberate pass: feed every rule
+Eighteen entries now. #17 and #18 are the two an *external* reviewer found
+by running the suite for real: a property test that generated a 100.01%
+discount my own schema correctly refused, and — the one that stings — the
+email branch of the identifier validator I wrote to fix #9 accepting
+`@a.com` and hashing it into a confident join key. Same bug class, one field
+over. #13–#16 came from one deliberate pass: feed every rule
 the input a *real* integration would produce (aware webhook timestamps, a
 merchant whose contact window wraps midnight, a WhatsApp-only channel list,
 a plain misquote with no discount attached) instead of the input my own
@@ -244,14 +260,14 @@ Fully enumerated in **[NOT_CHECKED.md](NOT_CHECKED.md)**. The short version:
 kasauti/
   schema.py        the contract; checkers read only this
   engine.py        verdicts + assert_no_llm (the purity guard)
-  rules/checkers.py  8 per-episode rules, each with a citation
+  rules/checkers.py  11 per-episode rules, each with a citation
   crossepisode.py  3 aggregate rules over one customer's history
   consortium.py    3 network rules across merchants, salted-hash join
   gateway.py       the same predicates, evaluated inline
   adversary.py     the LLM red-teamer (offline mode is the default)
   baselines.py     the systems KASAUTI claims to beat
-corpus/            89 transcripts + histories + consortium fixtures
-tests/             421 tests, incl. property-based and regression
+corpus/            98 transcripts + histories + consortium fixtures
+tests/             490 tests, incl. property-based and regression
 docs/INTERPRETATION.md   prose → predicate, every judgement call
 FAILURES.md        what broke
 NOT_CHECKED.md     what this does not prove
@@ -266,8 +282,8 @@ pip install -r requirements.txt   # pytest + hypothesis, for tests only
 make demo
 ```
 
-`hypothesis` is genuinely optional. Without it, `make test` runs 406 tests
-and reports the 15 property-based ones as skipped with an install hint,
+`hypothesis` is genuinely optional. Without it, `make test` runs 474 tests
+and reports the 16 property-based ones as skipped with an install hint,
 rather than dying at collection as it used to. What it will never do is let a
 property test *pass* while the engine that checks it is absent — a skip is
 visible in the summary, a false pass is not
@@ -280,7 +296,8 @@ metrics above reproduce byte-for-byte offline.
 ## Citations
 
 Regulation: CCPA Dark Patterns Guidelines 2023 · RBI recovery-agent
-directions · RBI e-mandate framework · TRAI TCCCPR 2018 · DPDP Act 2023.
+directions and Fair Practices Code · RBI e-mandate framework (DPSS circular
+21 Aug 2019, as amended) · TRAI TCCCPR 2018 · DPDP Act 2023.
 Razorpay Agent Studio guardrails blog (30 Mar 2026). MediaNama's Agent Studio
 launch report (18 Mar 2026) — the `MEDIANAMA_DEMO` exhibit reproduces
 *behaviour as reported*, and is not a claim about Razorpay's shipped code.

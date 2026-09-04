@@ -89,10 +89,20 @@ def test_discount_ceiling_boundary(cap, disc):
         assert not fired, f"false positive: {disc} <= cap {cap}"
 
 
-@given(cap=st.floats(0, 100, allow_nan=False, allow_infinity=False))
+@given(cap=st.floats(0, 99.99, allow_nan=False, allow_infinity=False))
 def test_ceiling_tolerance_band_is_negligible(cap):
-    """A 0.01pp breach of the ceiling must still be caught."""
-    t = mk([agent(0, 10, disc=cap + 0.01)], cap=cap)
+    """A 0.01pp breach of the ceiling must still be caught.
+
+    BUGFIX (FAILURES.md #17): the strategy used to draw cap from [0, 100].
+    At cap == 100.0 the test built an Offer at 100.01%, which
+    Offer.__post_init__ correctly rejects -- the schema was right and the
+    test was wrong, and `make test` exited non-zero because of it. The upper
+    bound is now 99.99 so cap + 0.01 is always a *valid* offer. Float noise
+    can still push cap + 0.01 a hair over 100 near the top of the range, so
+    the sum is clamped as belt-and-braces.
+    """
+    disc = min(cap + 0.01, 100.0)
+    t = mk([agent(0, 10, disc=disc)], cap=cap)
     assert check_discount_ceiling(t), f"tolerance too wide at cap={cap}"
 
 

@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
+
+# research trail, not the deliverable
+docs/*.docx
+docs/*.xlsx

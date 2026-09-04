@@ -35,7 +35,7 @@ To execute this I need to answer three questions the text does not answer:
 
 My answers, in order: the merchant's own catalog; nothing — only structured
 claims count; only contradicted claims. Each answer is defensible. None is
-forced by the text. Below is the same treatment for all nine rules.
+forced by the text. Below is the same treatment for all eleven rules.
 
 ---
 
@@ -318,6 +318,81 @@ SKU, the claim is judged against that item's `price_paise`. If it has
 several and no offer names one, the rule stays silent rather than guess
 which item was meant — consistent with #7's "silence over a guess". See
 FAILURES.md #15.
+
+---
+
+## Interpretation #12 — MANDATE_RETRY_BREACH: two limits are the regulator's, two are the merchant's
+
+**Source.** RBI e-mandate framework for recurring card/UPI transactions
+(DPSS.CO.PD No.447/02.14.003/2019-20, 21 Aug 2019, extended 2020–2021):
+a pre-debit notification at least **24 hours** before the charge, and no
+debit above the amount the customer **authorised**. That much is unambiguous
+and the checker enforces it as written.
+
+**What the text does not say.** How many times a failed debit may be
+*retried*, and over what window. Those figures come from NPCI product rules
+for UPI AutoPay and from sponsor-bank mandates, differ by rail, and change.
+I could have hard-coded "3 retries in 3 days" — the commonly published UPI
+figure — and called it regulation. That would be the same lie as calling a
+10% discount cap a statute.
+
+**My call.** `MerchantPolicy.mandate_retry_cap` and
+`mandate_retry_window_days` are merchant configuration, defaulting to the
+published figures. The rule enforces the *merchant's* ceiling, exactly as
+`DISCOUNT_CEILING` does, and the citation string says which two limits are
+RBI's and which two are the merchant's. Retry #N is judged against the
+timestamp of attempt 1, not attempt N−1, because a window that restarts on
+every retry is not a window.
+
+**Boundaries.** All four are closed on the permitted side: notice at exactly
+24h is fine; retry #3 with cap 3 is fine; a retry exactly `window` days
+later is fine. Same convention as the discount ceiling: *at* the limit is
+legal, *past* it is not.
+
+**Where a lawyer would push back.** Whether the 24h notice must precede
+each *retry* or only the scheduled debit. I read it as the scheduled debit
+— the retry is the same authorised charge, not a new one — and so retries
+inherit attempt 1's notice. If that reading is wrong, `HW_MANDATE_RETRY_
+OUTSIDE_WINDOW` is under-labelled by one finding.
+
+---
+
+## Interpretation #13 — HARDSHIP_SIGNAL_IGNORED: the rule reads the move, not the words
+
+**Source.** RBI Fair Practices Code (lenders) and the recovery-agent annex
+to the RBI Outsourcing Directions: no "undue harassment" or "undue pressure"
+in recovery. CCPA 2023 Annexure I(3) "nagging" for the commerce side. None
+of these say what a recovery agent must do when a customer says "I lost my
+job." All of them say what it must not do.
+
+**The trap.** The obvious build is a hardship *classifier* — does this
+message express financial distress? — and then a policy about routing.
+That is a model's claim, unmeasurable on a corpus I labelled myself, and
+the idea bank flagged it as exactly the thing not to build in the time
+available. I did not build it.
+
+**My call.** Split the question. *Whether the customer signalled hardship*
+is language work: the harness sets `Turn.is_hardship_signal`, and an LLM is
+allowed to do that there. *What the agent did next* is structural: did its
+very next turn attach an `Offer`, attach a deadline, or fire a
+`RetryAttempt`? If yes, that is a pressure move in the one turn where
+pressure is forbidden, and the rule fires. Any other reply — empathy, a
+pause, a human handover, silence — is not judged at all. The rule never
+reads the agent's prose either: a warm apology *with* a discount attached
+still fires, because the discount is the move.
+
+**Scope: the immediate next agent turn only.** If the customer later asks
+"is there any discount?" and gets one, that offer answers the question, not
+the hardship (`HN_HARDSHIP_OFFER_TWO_TURNS_LATER`). Sustained pressure
+across many turns is a frequency question and belongs to the cross-episode
+layer. A `SYSTEM` turn between the signal and the agent's reply does not
+clear the signal.
+
+**Where a lawyer would push back.** Whether *any* offer after a hardship
+signal is pressure. A 100% waiver is, formally, an offer, and this rule
+would block it. I accepted that false positive knowingly: a genuine waiver
+is a restructuring decision, and restructuring is the human's turn, not the
+sales agent's.
 
 ---
 

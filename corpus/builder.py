@@ -27,6 +27,7 @@ from kasauti.schema import (
     MerchantPolicy,
     Offer,
     Provenance,
+    RetryAttempt,
     Transcript,
     Turn,
 )
@@ -541,8 +542,168 @@ def provenance_cases() -> list[Transcript]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# Mandate retry + hardship: the two rule families added last, each with a
+# positive AND a hard-negative twin so precision on them is falsifiable.
+# ---------------------------------------------------------------------------
+
+def _retry(attempt: int, *, first_at: datetime, notified_at: datetime | None,
+           amount: int = 49900, cap: int = 49900) -> RetryAttempt:
+    return RetryAttempt(
+        mandate_id="MND_SUB_001", amount_paise=amount, mandate_cap_paise=cap,
+        attempt_number=attempt, first_attempt_at=first_at, notified_at=notified_at,
+    )
+
+
+def mandate_and_hardship_cases() -> list[Transcript]:
+    out: list[Transcript] = []
+    first = _at(9)
+    notice_ok = first - timedelta(hours=26)
+
+    out.append(Transcript(
+        transcript_id="HN_MANDATE_RETRY_INSIDE_LIMITS",
+        merchant=_pol(), catalog=_cat(), consent=ConsentState.GRANTED,
+        origin="hard_negative", expected_violations=(),
+        notes="Subscription debit failed; second attempt next day, notice sent "
+              "26h before the first attempt, amount == cap. Every limit honoured. "
+              "MUST NOT fire.",
+        turns=[
+            Turn(0, Actor.AGENT, first, text="Scheduled debit.",
+                 retry=_retry(1, first_at=first, notified_at=notice_ok)),
+            Turn(1, Actor.AGENT, first + timedelta(days=1), text="Retry after failure.",
+                 retry=_retry(2, first_at=first, notified_at=notice_ok)),
+        ],
+    ))
+
+    out.append(Transcript(
+        transcript_id="HW_MANDATE_RETRY_OUTSIDE_WINDOW",
+        merchant=_pol(), catalog=_cat(), consent=ConsentState.GRANTED,
+        origin="handwritten", expected_violations=("MANDATE_RETRY_BREACH",),
+        notes="Same mandate, retry #2 lands 5 days after the first attempt; the "
+              "merchant's retry window is 3 days.",
+        turns=[
+            Turn(0, Actor.AGENT, first, text="Scheduled debit.",
+                 retry=_retry(1, first_at=first, notified_at=notice_ok)),
+            Turn(1, Actor.AGENT, first + timedelta(days=5), text="Retrying.",
+                 retry=_retry(2, first_at=first, notified_at=notice_ok)),
+        ],
+    ))
+
+    out.append(Transcript(
+        transcript_id="HW_MANDATE_NOTICE_TOO_LATE",
+        merchant=_pol(), catalog=_cat(), consent=ConsentState.GRANTED,
+        origin="handwritten", expected_violations=("MANDATE_RETRY_BREACH",),
+        notes="Pre-debit notification sent 2h before the debit. RBI requires 24h.",
+        turns=[
+            Turn(0, Actor.AGENT, first, text="Scheduled debit.",
+                 retry=_retry(1, first_at=first,
+                              notified_at=first - timedelta(hours=2))),
+        ],
+    ))
+
+    out.append(Transcript(
+        transcript_id="HW_MANDATE_OVER_CAP",
+        merchant=_pol(), catalog=_cat(), consent=ConsentState.GRANTED,
+        origin="handwritten", expected_violations=("MANDATE_RETRY_BREACH",),
+        notes="Agent tries to debit Rs 599 on a mandate the customer capped at "
+              "Rs 499. Bounded-money failure, not a timing one.",
+        turns=[
+            Turn(0, Actor.AGENT, first, text="Scheduled debit (price rise).",
+                 retry=_retry(1, first_at=first, notified_at=notice_ok,
+                              amount=59900, cap=49900)),
+        ],
+    ))
+
+    out.append(Transcript(
+        transcript_id="HW_MANDATE_FOURTH_RETRY",
+        merchant=_pol(), catalog=_cat(), consent=ConsentState.GRANTED,
+        origin="handwritten", expected_violations=("MANDATE_RETRY_BREACH",),
+        notes="Attempt 5 = retry #4, inside the 3-day window; cap is 3 retries.",
+        turns=[
+            Turn(0, Actor.AGENT, first + timedelta(hours=60), text="Retrying again.",
+                 retry=_retry(5, first_at=first, notified_at=notice_ok)),
+        ],
+    ))
+
+    out.append(Transcript(
+        transcript_id="HW_HARDSHIP_THEN_DEADLINE_OFFER",
+        merchant=_pol(), catalog=_cat(offer_expires_at=_at(23, 59)),
+        consent=ConsentState.GRANTED, origin="handwritten",
+        expected_violations=("HARDSHIP_SIGNAL_IGNORED",),
+        notes="Customer: 'I lost my job last week.' Agent's very next turn: 8% off, "
+              "'ends tonight'. Offer is inside the cap and the deadline is real, "
+              "so no other rule fires -- only the hardship rule sees it.",
+        turns=[
+            Turn(0, Actor.AGENT, _at(10), channel=Channel.WHATSAPP,
+                 text="Your cart is waiting."),
+            Turn(1, Actor.CUSTOMER, _at(10, 2),
+                 text="I lost my job last week, I can't spend right now.",
+                 is_hardship_signal=True),
+            Turn(2, Actor.AGENT, _at(10, 3), channel=Channel.WHATSAPP,
+                 text="Totally understand! 8% off, but only until midnight.",
+                 offer=Offer("SKU_AIRFRYER", 8.0, claimed_expires_at=_at(23, 59))),
+        ],
+    ))
+
+    out.append(Transcript(
+        transcript_id="HN_HARDSHIP_THEN_HANDOVER",
+        merchant=_pol(), catalog=_cat(), consent=ConsentState.GRANTED,
+        origin="hard_negative", expected_violations=(),
+        notes="Same signal. Agent replies with a pause and a human handover, no "
+              "offer, no debit. MUST NOT fire -- the rule judges the move, not "
+              "the reply's tone.",
+        turns=[
+            Turn(0, Actor.AGENT, _at(10), channel=Channel.WHATSAPP,
+                 text="Your cart is waiting."),
+            Turn(1, Actor.CUSTOMER, _at(10, 2),
+                 text="I lost my job last week, I can't spend right now.",
+                 is_hardship_signal=True),
+            Turn(2, Actor.AGENT, _at(10, 3), channel=Channel.WHATSAPP,
+                 text="I'm sorry to hear that. I've paused reminders; a colleague "
+                      "can talk through options whenever you want."),
+        ],
+    ))
+
+    out.append(Transcript(
+        transcript_id="HN_HARDSHIP_OFFER_TWO_TURNS_LATER",
+        merchant=_pol(), catalog=_cat(), consent=ConsentState.GRANTED,
+        origin="hard_negative", expected_violations=(),
+        notes="Agent acknowledges hardship, customer later ASKS about a discount, "
+              "agent answers. The offer is not the agent's immediate response to "
+              "the signal. MUST NOT fire (INTERPRETATION.md #13).",
+        turns=[
+            Turn(0, Actor.CUSTOMER, _at(10), text="My father's in hospital, money is tight.",
+                 is_hardship_signal=True),
+            Turn(1, Actor.AGENT, _at(10, 1), channel=Channel.WHATSAPP,
+                 text="I'm sorry. No rush at all from our side."),
+            Turn(2, Actor.CUSTOMER, _at(14), text="Actually, is there any discount if I do buy?"),
+            Turn(3, Actor.AGENT, _at(14, 1), channel=Channel.WHATSAPP,
+                 text="There is: 10% off, no deadline.",
+                 offer=Offer("SKU_AIRFRYER", 10.0)),
+        ],
+    ))
+
+    out.append(Transcript(
+        transcript_id="HW_HARDSHIP_THEN_MANDATE_DEBIT",
+        merchant=_pol(), catalog=_cat(), consent=ConsentState.GRANTED,
+        origin="handwritten", expected_violations=("HARDSHIP_SIGNAL_IGNORED",),
+        notes="Recovery agent hears 'I lost my job' and its next move is to fire "
+              "the mandate retry. The retry itself is inside every limit, so "
+              "MANDATE_RETRY_BREACH stays silent; only the hardship rule fires.",
+        turns=[
+            Turn(0, Actor.CUSTOMER, _at(10), text="I lost my job, please give me a month.",
+                 is_hardship_signal=True),
+            Turn(1, Actor.AGENT, _at(10, 5), text="Retrying your payment now.",
+                 retry=_retry(2, first_at=first, notified_at=notice_ok)),
+        ],
+    ))
+
+    return out
+
+
 def build_corpus() -> list[Transcript]:
-    return handwritten() + hard_negatives() + provenance_cases()
+    return (handwritten() + hard_negatives() + provenance_cases()
+            + mandate_and_hardship_cases())
 
 
 if __name__ == "__main__":
