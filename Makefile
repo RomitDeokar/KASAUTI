@@ -1,4 +1,4 @@
-.PHONY: demo test consortium equivalence baselines failures all clean help
+.PHONY: demo test consortium equivalence baselines failures judge all clean help
 
 help:
 	@echo "make demo        - full conformance suite + Agent Studio exhibit"
@@ -7,6 +7,7 @@ help:
 	@echo "make baselines   - the two approaches KASAUTI claims to beat"
 	@echo "make failures    - replay the bugs, as regression tests"
 	@echo "make test        - the whole test suite"
+	@echo "make judge F=x.json - judge YOUR transcript (exit 0 pass / 1 blocked / 2 unparseable)"
 	@echo "make all         - everything, in the order a reviewer should read it"
 
 demo:
@@ -26,6 +27,10 @@ failures:
 
 test:
 	python -m pytest -q
+
+F ?= examples/medianama_demo.json
+judge:
+	python -m kasauti judge $(F)
 
 all: test demo consortium equivalence baselines
 	@echo

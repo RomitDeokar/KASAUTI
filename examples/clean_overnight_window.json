@@ -1,0 +1,52 @@
+{
+  "transcript_id": "HN_OVERNIGHT_WINDOW_2300_OK",
+  "merchant": {
+    "merchant_id": "M_ACME",
+    "max_discount_pct": 10.0,
+    "contact_window_start_hour": 20,
+    "contact_window_end_hour": 6,
+    "allowed_channels": [
+      "whatsapp",
+      "voice",
+      "email",
+      "sms"
+    ],
+    "pre_debit_notice_hours": 24,
+    "mandate_retry_cap": 3,
+    "mandate_retry_window_days": 3
+  },
+  "catalog": {
+    "SKU_AIRFRYER": {
+      "sku": "SKU_AIRFRYER",
+      "name": "Air Fryer 4L",
+      "price_paise": 499900,
+      "in_stock": true,
+      "offer_expires_at": null,
+      "mrp_paise": 699900
+    }
+  },
+  "consent": "granted",
+  "turns": [
+    {
+      "idx": 0,
+      "actor": "agent",
+      "at": "2026-04-14T23:00:00",
+      "text": "Hi.",
+      "channel": "email",
+      "offer": null,
+      "is_refusal": false,
+      "is_optout": false,
+      "is_hardship_signal": false,
+      "retry": null,
+      "price_claims_paise": [],
+      "stock_claims": [],
+      "context_sources": [],
+      "action_authority": null
+    }
+  ],
+  "origin": "hard_negative",
+  "expected_violations": [],
+  "notes": "B2B merchant serving US buyers: window 20:00-06:00 IST. 23:00 is INSIDE. v1 predicate `20 <= h < 6` blocked every hour of the day.",
+  "meta": {},
+  "schema_version": 1
+}
