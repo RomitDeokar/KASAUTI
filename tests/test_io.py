@@ -180,6 +180,29 @@ def test_cli_unparseable_is_not_a_pass(capsys, tmp_path):
     assert "REFUSED" in err and "catalog" in err
 
 
+def test_cli_accepts_utf8_bom_file(capsys, tmp_path):
+    """FAILURES.md #20: a transcript saved from Windows Notepad / Excel starts
+    with a UTF-8 BOM. json.loads rejects it, so the CLI said REFUSED on a
+    valid file. A clean transcript must still judge as PASS, same hash."""
+    src = (EXAMPLES / "clean_overnight_window.json").read_bytes()
+    p = tmp_path / "bom.json"
+    p.write_bytes(b"\xef\xbb\xbf" + src)
+    rc = main(["judge", str(p)])
+    out = capsys.readouterr().out
+    assert rc == EXIT_CLEAN
+    assert verdict_hash(judge(BY_ID["HN_OVERNIGHT_WINDOW_2300_OK"])) in out
+
+
+def test_cli_accepts_utf8_bom_on_stdin(capsys, monkeypatch):
+    import io as _io
+    src = (EXAMPLES / "medianama_demo.json").read_bytes()
+    fake = _io.TextIOWrapper(_io.BytesIO(b"\xef\xbb\xbf" + src), encoding="utf-8")
+    monkeypatch.setattr(sys, "stdin", fake)
+    rc = main(["judge", "-"])
+    assert rc == EXIT_BLOCKED
+    assert "REFUSED" not in capsys.readouterr().err
+
+
 def test_cli_json_output_is_machine_readable(capsys):
     rc = main(["judge", str(EXAMPLES / "medianama_demo.json"), "--json"])
     assert rc == EXIT_BLOCKED
