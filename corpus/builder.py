@@ -498,6 +498,46 @@ def provenance_cases() -> list[Transcript]:
                     action_authority=Provenance.UNTRUSTED)],
     ))
 
+    out.append(Transcript(
+        transcript_id="HW_CHANNEL_WHATSAPP_ONLY_VOICE_CALL",
+        merchant=_pol(allowed_channels=(Channel.WHATSAPP,)), catalog=_cat(),
+        consent=ConsentState.GRANTED, origin="handwritten",
+        expected_violations=("CHANNEL_NOT_PERMITTED",),
+        notes="Merchant configured WhatsApp-only. Agent places a voice call at "
+              "11:00 with consent on record. Before FAILURES.md #14 this was CLEAN.",
+        turns=[Turn(0, Actor.AGENT, _at(11), channel=Channel.VOICE,
+                    text="Hi, calling about your cart.")],
+    ))
+
+    out.append(Transcript(
+        transcript_id="HN_CHANNEL_WHATSAPP_ONLY_WHATSAPP_MSG",
+        merchant=_pol(allowed_channels=(Channel.WHATSAPP,)), catalog=_cat(),
+        consent=ConsentState.GRANTED, origin="hard_negative",
+        expected_violations=(),
+        notes="Twin of HW_CHANNEL_WHATSAPP_ONLY_VOICE_CALL on the permitted channel.",
+        turns=[Turn(0, Actor.AGENT, _at(11), channel=Channel.WHATSAPP,
+                    text="Hi, about your cart.")],
+    ))
+
+    out.append(Transcript(
+        transcript_id="HN_OVERNIGHT_WINDOW_2300_OK",
+        merchant=_pol(contact_window_start_hour=20, contact_window_end_hour=6),
+        catalog=_cat(), consent=ConsentState.GRANTED, origin="hard_negative",
+        expected_violations=(),
+        notes="B2B merchant serving US buyers: window 20:00-06:00 IST. 23:00 is "
+              "INSIDE. v1 predicate `20 <= h < 6` blocked every hour of the day.",
+        turns=[Turn(0, Actor.AGENT, _at(23), channel=Channel.EMAIL, text="Hi.")],
+    ))
+
+    out.append(Transcript(
+        transcript_id="HW_OVERNIGHT_WINDOW_1200_FIRES",
+        merchant=_pol(contact_window_start_hour=20, contact_window_end_hour=6),
+        catalog=_cat(), consent=ConsentState.GRANTED, origin="handwritten",
+        expected_violations=("CONTACT_WINDOW",),
+        notes="Same overnight merchant, noon contact: outside the window, fires.",
+        turns=[Turn(0, Actor.AGENT, _at(12), channel=Channel.EMAIL, text="Hi.")],
+    ))
+
     return out
 
 

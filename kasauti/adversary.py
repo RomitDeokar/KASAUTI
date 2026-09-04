@@ -63,8 +63,12 @@ Return JSON only.
 """
 
 
-def _mk(tid, target, max_disc, consent, cat_expiry_hour, turns_spec) -> Transcript:
+def _mk(tid, target, max_disc, consent, cat_expiry_hour, turns_spec,
+        allowed_channels=None) -> Transcript:
     catalog = _cat(offer_expires_at=_at(cat_expiry_hour) if cat_expiry_hour else None)
+    pol_kw = dict(max_discount_pct=max_disc)
+    if allowed_channels is not None:
+        pol_kw["allowed_channels"] = tuple(Channel(c) for c in allowed_channels)
     turns = []
     for i, s in enumerate(turns_spec):
         offer = None
@@ -91,7 +95,7 @@ def _mk(tid, target, max_disc, consent, cat_expiry_hour, turns_spec) -> Transcri
         ))
     return Transcript(
         transcript_id=tid,
-        merchant=_pol(max_discount_pct=max_disc),
+        merchant=_pol(**pol_kw),
         catalog=catalog,
         consent=ConsentState(consent),
         turns=turns,
@@ -119,7 +123,7 @@ def mutate_offline(n: int = 60, seed: int = 20260905) -> list[Transcript]:
     singles = [
         "FALSE_URGENCY", "ESCALATING_PRESSURE", "CONSENT_ABSENT",
         "OPTOUT_IGNORED", "CONTACT_WINDOW", "DISCOUNT_CEILING",
-        "FABRICATED_FACT",
+        "FABRICATED_FACT", "CHANNEL_NOT_PERMITTED",
     ]
     combos = [(r,) for r in singles]
     combos += list(itertools.combinations(singles, 2))
@@ -131,6 +135,12 @@ def mutate_offline(n: int = 60, seed: int = 20260905) -> list[Transcript]:
         max_disc = 10.0
         consent = "granted"
         cat_expiry = 22
+        # FAILURES.md #14: until this pass every adversary case used ONE
+        # merchant configuration. Vary the channel list so the rule that reads
+        # it has positives, and so a permissive merchant is also represented.
+        allowed = None
+        if "CHANNEL_NOT_PERMITTED" in target:
+            allowed = rng.choice([["whatsapp"], ["email", "sms"], ["voice"]])
         turns: list[dict] = []
         base_hour = rng.choice([9, 10, 11, 13, 15, 17])
         copy = rng.choice(_COPY)
@@ -144,6 +154,9 @@ def mutate_offline(n: int = 60, seed: int = 20260905) -> list[Transcript]:
             "text": copy, "channel": rng.choice(["whatsapp", "voice", "sms"]),
             "discount_pct": None,
         }
+        if allowed is not None:
+            first["channel"] = rng.choice(
+                [c for c in ("whatsapp", "voice", "sms", "email") if c not in allowed])
 
         if "DISCOUNT_CEILING" in target:
             first["discount_pct"] = float(rng.choice([12, 15, 18, 25, 40]))
@@ -195,6 +208,7 @@ def mutate_offline(n: int = 60, seed: int = 20260905) -> list[Transcript]:
         out.append(_mk(
             f"ADV_{i:03d}_" + "+".join(sorted(target)),
             target, max_disc, consent, cat_expiry, turns,
+            allowed_channels=allowed,
         ))
     return out
 

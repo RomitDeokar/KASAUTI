@@ -1,21 +1,21 @@
 {
-  "generated_at": "2026-09-04T07:11:46.769166Z",
-  "n_transcripts": 85,
+  "corpus_digest": "e7137bfbc774bd18",
+  "n_transcripts": 89,
   "origins": {
-    "handwritten": 9,
-    "hard_negative": 10,
+    "handwritten": 11,
+    "hard_negative": 12,
     "provenance": 6,
     "adversary": 60
   },
   "micro": {
-    "tp": 125,
+    "tp": 131,
     "fp": 0,
     "fn": 0,
     "precision": 1.0,
     "recall": 1.0
   },
   "exact_match_rate": 1.0,
-  "clean_transcripts": 13,
+  "clean_transcripts": 15,
   "clean_wrongly_blocked": 0,
   "false_positive_rate_on_clean": 0.0,
   "per_rule": {
@@ -27,42 +27,42 @@
       "recall": 1.0
     },
     "ESCALATING_PRESSURE": {
-      "tp": 16,
+      "tp": 15,
       "fp": 0,
       "fn": 0,
       "precision": 1.0,
       "recall": 1.0
     },
     "CONSENT_ABSENT": {
-      "tp": 16,
+      "tp": 15,
       "fp": 0,
       "fn": 0,
       "precision": 1.0,
       "recall": 1.0
     },
     "OPTOUT_IGNORED": {
-      "tp": 16,
+      "tp": 17,
       "fp": 0,
       "fn": 0,
       "precision": 1.0,
       "recall": 1.0
     },
     "CONTACT_WINDOW": {
-      "tp": 19,
+      "tp": 17,
       "fp": 0,
       "fn": 0,
       "precision": 1.0,
       "recall": 1.0
     },
     "DISCOUNT_CEILING": {
-      "tp": 20,
+      "tp": 17,
       "fp": 0,
       "fn": 0,
       "precision": 1.0,
       "recall": 1.0
     },
     "FABRICATED_FACT": {
-      "tp": 18,
+      "tp": 17,
       "fp": 0,
       "fn": 0,
       "precision": 1.0,
@@ -70,6 +70,13 @@
     },
     "INJECTED_INSTRUCTION": {
       "tp": 3,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "CHANNEL_NOT_PERMITTED": {
+      "tp": 13,
       "fp": 0,
       "fn": 0,
       "precision": 1.0,

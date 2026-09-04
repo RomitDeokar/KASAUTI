@@ -17,7 +17,7 @@ and stopped.
 
 ## 1. The headline metrics are on a corpus I built
 
-`artifacts/metrics.json` reports precision 1.0 / recall 1.0 on 85
+`artifacts/metrics.json` reports precision 1.0 / recall 1.0 on 89
 transcripts. **That number describes agreement between my checkers and my own
 labels.** It is not a measurement of real-world agent compliance and must not
 be read as one.
@@ -25,9 +25,9 @@ be read as one.
 What it does establish, which is narrower and still worth something:
 
 - The checkers implement the interpretations written in
-  [docs/INTERPRETATION.md](docs/INTERPRETATION.md), consistently, across 85
+  [docs/INTERPRETATION.md](docs/INTERPRETATION.md), consistently, across 89
   cases including 10 hard negatives designed to break them.
-- The rules are stable under adversarial mutation (60 of the 85 are
+- The rules are stable under adversarial mutation (60 of the 89 are
   adversary-generated, not hand-written).
 - Two baselines — a lexical detector and an LLM judge — score materially
   worse on the identical corpus with the identical labels
@@ -44,7 +44,7 @@ and an independent LLM adversary reduce it. They do not eliminate it.
 
 ## 2. Precision 1.0 is a warning sign, not a victory
 
-A perfect score on an 85-case corpus mostly measures that the corpus is too
+A perfect score on an 89-case corpus mostly measures that the corpus is too
 small and too close to the rules it tests. I am reporting it because hiding
 it would be worse, but the honest reading is: *the corpus has not yet found a
 case my rules get wrong.* That is a statement about corpus coverage, not
@@ -56,7 +56,7 @@ break something.
 ## 3. The equivalence proof holds in SHADOW mode only
 
 `scripts/prove_equivalence.py` proves that offline certification and inline
-enforcement produce identical verdicts across all 85 transcripts — in SHADOW
+enforcement produce identical verdicts across all 89 transcripts — in SHADOW
 mode, where every turn is evaluated and recorded but nothing is blocked.
 
 In ENFORCE mode the gate changes history. If it denies turn 3, turn 3 never
@@ -168,7 +168,7 @@ Named plainly, because "we didn't get to it" is more useful than silence:
   turns, and never benchmarked.
 - **Concurrency.** Everything is single-threaded and in-memory. There is no
   database, no locking, no idempotency handling for replayed events.
-- **The LLM adversary's coverage.** It generated 60 cases against 8 rules.
+- **The LLM adversary's coverage.** It generated 60 cases against 9 rules.
   Whether that meaningfully covers the attack space is unmeasured — I have no
   denominator for "all possible dark patterns."
 - **Multilingual.** Every transcript is English. Indian recovery agents
@@ -177,6 +177,16 @@ Named plainly, because "we didn't get to it" is more useful than silence:
   port unchanged; I have not demonstrated that.
 - **Voice.** Timestamps and structured offers only. No ASR, no prosody, no
   tone analysis — and tone is where a lot of real harassment lives.
+- **Merchant diversity.** Until FAILURES.md #14 every corpus transcript used
+  one merchant configuration (`_pol()` with defaults). Two of the four bugs
+  found in that pass lived in configuration no fixture had ever varied:
+  `allowed_channels` and a contact window that wraps midnight. The corpus now
+  has three merchant shapes. Real Razorpay has millions.
+- **Timezones.** `Turn.at` is customer-local and naive by convention. Mixed
+  naive/aware inputs no longer crash (#13), but the fix compares wall-clock
+  values, which is only correct if the aware timestamp was *meant* in the
+  merchant's local zone. A UTC deadline for a customer in IST is off by 5h30
+  and the rule will not know.
 
 ---
 

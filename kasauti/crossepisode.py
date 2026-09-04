@@ -208,9 +208,15 @@ def check_ceiling_laundering(
         return []
 
     out: list[Finding] = []
-    # (customer, sku) -> [(pct, transcript_id)]
-    acc: dict[tuple[str, str], list[tuple[float, str]]] = defaultdict(list)
-    caps: dict[tuple[str, str], float] = {}
+    # (customer, sku) -> [(pct, transcript_id, cap_in_force)]
+    # BUGFIX (FAILURES.md #15): v1 kept ONE cap per key -- whichever episode
+    # happened to be iterated last. A merchant who raised its ceiling from 10%
+    # to 20% between episodes had a 15% offer (legal under 20) judged against
+    # 10, and the verdict flipped with iteration order. Each offer is now
+    # judged "individually compliant" against the cap in force when it was
+    # made, and the cumulative total against the most generous cap the
+    # merchant ever configured -- the reading least likely to accuse.
+    acc: dict[tuple[str, str], list[tuple[float, str, float]]] = defaultdict(list)
 
     for ep in episodes:
         cap = ep.transcript.merchant.max_discount_pct
@@ -218,17 +224,17 @@ def check_ceiling_laundering(
             if turn.offer is None:
                 continue
             key = (ep.customer_id, turn.offer.sku)
-            acc[key].append((turn.offer.discount_pct, ep.transcript.transcript_id))
-            caps[key] = cap
+            acc[key].append(
+                (turn.offer.discount_pct, ep.transcript.transcript_id, cap))
 
     for (customer, sku), offers in sorted(acc.items()):
-        total = sum(p for p, _ in offers)
-        cap = caps[(customer, sku)]
+        total = sum(p for p, _, _ in offers)
+        cap = max(c for _, _, c in offers)
         # Only interesting when EVERY individual offer was legal -- otherwise
         # DISCOUNT_CEILING already caught it per-episode and this would be a
         # duplicate finding dressed up as a new insight.
-        if total > cap + 1e-9 and all(p <= cap + 1e-9 for p, _ in offers):
-            trail = ", ".join(f"{p:g}% ({tid})" for p, tid in offers)
+        if total > cap + 1e-9 and all(p <= c + 1e-9 for p, _, c in offers):
+            trail = ", ".join(f"{p:g}% ({tid}, cap {c:g}%)" for p, tid, c in offers)
             out.append(
                 Finding(
                     rule_id="CEILING_LAUNDERING",

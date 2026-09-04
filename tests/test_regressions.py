@@ -231,7 +231,14 @@ def test_optional_dependency_shim_reexports_the_real_library():
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tests"))
     compat = importlib.import_module("_hypothesis_compat")
 
+    # Probe for the library the SAME way the shim does. `import hypothesis`
+    # alone is not enough: after `pip uninstall`, leftover `__pycache__`
+    # directories make `hypothesis` importable as an empty namespace package
+    # with no `given` in it. This test then believed the library was present,
+    # the shim (correctly) said it was not, and the disagreement failed the
+    # bare-stdlib run the README promises works (FAILURES.md #16).
     try:
+        from hypothesis import given as real_given  # noqa: F401
         import hypothesis
         import hypothesis.strategies
     except ImportError:
@@ -261,3 +268,194 @@ def test_readme_stdlib_claim_names_its_own_exception():
     )
     reqs = (root / "requirements.txt").read_text(encoding="utf-8")
     assert "hypothesis" in reqs.lower()
+
+
+# ---------------------------------------------------------------------------
+# FAILURES.md #13 - a checker CRASHED instead of judging, and the artifact
+# the README calls reproducible changed on every run
+# ---------------------------------------------------------------------------
+def test_false_urgency_survives_mixed_tz_awareness():
+    """`Turn.at` is customer-local (naive); a real webhook stamps
+    `claimed_expires_at` in UTC (aware). v1 raised TypeError -- the engine
+    died, emitted nothing, and a broad `except` upstream read that as CLEAN.
+    """
+    from datetime import timezone
+
+    from kasauti.rules.checkers import check_false_urgency
+
+    truth = DAY.replace(hour=12)
+    claimed_aware = DAY.replace(hour=11, tzinfo=timezone.utc)
+    t = Transcript(
+        "REG", MerchantPolicy("M", 10.0),
+        {SKU: CatalogItem(SKU, "t", 100000, True, offer_expires_at=truth)},
+        ConsentState.GRANTED,
+        [Turn(0, Actor.AGENT, DAY.replace(hour=10), channel=Channel.WHATSAPP,
+              offer=Offer(SKU, 5.0, claimed_expires_at=claimed_aware))],
+    )
+    found = check_false_urgency(t)  # must not raise
+    assert [f.rule_id for f in found] == ["FALSE_URGENCY"]
+
+
+def test_metrics_artifact_is_byte_stable():
+    """`make demo` twice must produce identical metrics.json. A wall-clock
+    field in the artifact made every rerun a diff, which is where a real
+    regression would have hidden."""
+    import json
+
+    from corpus.builder import build_corpus
+    from kasauti.engine import score_corpus
+
+    corpus = build_corpus()
+    a = json.dumps(score_corpus(corpus), sort_keys=True)
+    b = json.dumps(score_corpus(corpus), sort_keys=True)
+    assert a == b
+    assert "generated_at" not in a
+    assert "corpus_digest" in a
+
+
+@pytest.mark.parametrize("bad", [-0.01, 100.01, 250.0])
+def test_offer_rejects_out_of_range_discount(bad):
+    """A negative discount is a surcharge; >100% pays the customer. Neither is
+    a thing a checker should form an opinion about -- the harness is broken.
+    Before this fix a -5% 'offer' was judged CLEAN."""
+    with pytest.raises(ValueError):
+        Offer(SKU, bad)
+
+
+def test_transcript_rejects_duplicate_turn_idx():
+    """Two turns with one idx have no defined order, which silently defeats
+    every ordering fix in FAILURES.md #2 and makes gateway decisions
+    ambiguous. Fail where the bug is."""
+    with pytest.raises(ValueError, match="duplicate turn idx"):
+        mk([A(0, 10), A(0, 11)])
+
+
+@pytest.mark.parametrize("kw", [
+    {"max_discount_pct": -1.0},
+    {"max_discount_pct": 101.0},
+    {"contact_window_start_hour": 25},
+    {"contact_window_end_hour": -1},
+])
+def test_merchant_policy_rejects_uninterpretable_config(kw):
+    base = {"merchant_id": "M", "max_discount_pct": 10.0}
+    base.update(kw)
+    with pytest.raises(ValueError):
+        MerchantPolicy(**base)
+
+
+# ---------------------------------------------------------------------------
+# FAILURES.md #14 - two merchant configurations the engine could not honour:
+# a window that wraps midnight, and a channel list nothing enforced
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("hour,inside", [
+    (20, True), (23, True), (0, True), (5, True),   # inside 20 -> 06
+    (6, False), (12, False), (19, False),           # outside
+])
+def test_contact_window_wraps_midnight(hour, inside):
+    """lo=20, hi=6 used to be `20 <= h < 6`, which is False for every hour:
+    the merchant could contact nobody, ever, and every contact was BLOCKED."""
+    from kasauti.rules.checkers import check_contact_window
+
+    t = Transcript(
+        "REG", MerchantPolicy("M", 10.0, contact_window_start_hour=20,
+                              contact_window_end_hour=6),
+        {SKU: CatalogItem(SKU, "t", 100000, True)}, ConsentState.GRANTED,
+        [A(0, hour)],
+    )
+    assert bool(check_contact_window(t)) is (not inside)
+
+
+def test_contact_window_equal_bounds_means_no_hours():
+    from kasauti.rules.checkers import check_contact_window
+
+    t = Transcript(
+        "REG", MerchantPolicy("M", 10.0, contact_window_start_hour=9,
+                              contact_window_end_hour=9),
+        {SKU: CatalogItem(SKU, "t", 100000, True)}, ConsentState.GRANTED,
+        [A(0, 9)],
+    )
+    assert check_contact_window(t), "lo == hi must permit nothing"
+
+
+def test_allowed_channels_is_finally_enforced():
+    """`MerchantPolicy.allowed_channels` sat in the schema from commit 1 and
+    no rule read it. WhatsApp-only merchant, 11:00 voice call, consent on
+    record: CLEAN. Now: CHANNEL_NOT_PERMITTED."""
+    t = Transcript(
+        "REG", MerchantPolicy("M", 10.0, allowed_channels=(Channel.WHATSAPP,)),
+        {SKU: CatalogItem(SKU, "t", 100000, True)}, ConsentState.GRANTED,
+        [A(0, 11, ch=Channel.VOICE)],
+    )
+    assert judge(t).rules_fired == ["CHANNEL_NOT_PERMITTED"]
+
+
+def test_allowed_channels_silent_on_permitted_channel_and_on_no_contact():
+    pol = MerchantPolicy("M", 10.0, allowed_channels=(Channel.WHATSAPP,))
+    cat = {SKU: CatalogItem(SKU, "t", 100000, True)}
+    ok = Transcript("REG", pol, cat, ConsentState.GRANTED, [A(0, 11)])
+    assert "CHANNEL_NOT_PERMITTED" not in judge(ok).rules_fired
+    silent = Transcript("REG", pol, cat, ConsentState.GRANTED,
+                        [A(0, 11, ch=None)])  # no outbound contact at all
+    assert "CHANNEL_NOT_PERMITTED" not in judge(silent).rules_fired
+
+
+# ---------------------------------------------------------------------------
+# FAILURES.md #15 - two rules that were blind to the ordinary case
+# ---------------------------------------------------------------------------
+def test_fabricated_fact_catches_misquote_without_an_offer():
+    """The arithmetic branch was gated on `turn.offer is not None`, so the
+    most basic misquote -- wrong list price, no discount -- was never judged."""
+    t = Transcript(
+        "REG", MerchantPolicy("M", 10.0),
+        {SKU: CatalogItem(SKU, "t", 499900, True)}, ConsentState.GRANTED,
+        [Turn(0, Actor.AGENT, DAY.replace(hour=11), channel=Channel.WHATSAPP,
+              price_claims_paise=(299900,))],
+    )
+    assert judge(t).rules_fired == ["FABRICATED_FACT"]
+
+
+def test_fabricated_fact_silent_on_correct_list_price_without_offer():
+    t = Transcript(
+        "REG", MerchantPolicy("M", 10.0),
+        {SKU: CatalogItem(SKU, "t", 499900, True)}, ConsentState.GRANTED,
+        [Turn(0, Actor.AGENT, DAY.replace(hour=11), channel=Channel.WHATSAPP,
+              price_claims_paise=(499900,))],
+    )
+    assert judge(t).rules_fired == []
+
+
+def test_fabricated_fact_does_not_guess_among_several_skus():
+    """No offer names a SKU and the catalog has two: the rule must not pick
+    one and accuse. Silence over a guess -- docs/INTERPRETATION.md #7."""
+    cat = {SKU: CatalogItem(SKU, "t", 499900, True),
+           "S2": CatalogItem("S2", "u", 99900, True)}
+    t = Transcript(
+        "REG", MerchantPolicy("M", 10.0), cat, ConsentState.GRANTED,
+        [Turn(0, Actor.AGENT, DAY.replace(hour=11), channel=Channel.WHATSAPP,
+              price_claims_paise=(123400,))],
+    )
+    assert judge(t).rules_fired == []
+
+
+def test_ceiling_laundering_uses_the_cap_in_force_per_episode():
+    """Merchant raised its ceiling 10% -> 20% between episodes. 8% (legal
+    under 10) + 15% (legal under 20) = 23%. v1 tested both against the LAST
+    cap seen and reported laundering, with an evidence string calling the
+    15% 'individually compliant' under a 10% cap that no longer applied."""
+    from kasauti.crossepisode import Episode, judge_history
+
+    def ep(tid, cap, disc, day):
+        return Episode("cust", Transcript(
+            tid, MerchantPolicy("M", cap),
+            {SKU: CatalogItem(SKU, "t", 100000, True)}, ConsentState.GRANTED,
+            [Turn(0, Actor.AGENT, DAY.replace(day=day, hour=10),
+                  channel=Channel.WHATSAPP, offer=Offer(SKU, disc))],
+        ))
+
+    # 8 + 15 = 23 > 20 (max cap) -> still laundering under the generous reading
+    v = judge_history([ep("E1", 10.0, 8.0, 14), ep("E2", 20.0, 15.0, 15)])
+    assert v.rules_fired == ["CEILING_LAUNDERING"]
+    # 8 + 10 = 18 <= 20 (max cap) -> must NOT fire; v1 fired against cap=10
+    # when E1 was iterated last.
+    v2 = judge_history([ep("E2", 20.0, 10.0, 15), ep("E1", 10.0, 8.0, 14)])
+    assert v2.rules_fired == []

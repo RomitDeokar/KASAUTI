@@ -94,14 +94,29 @@ class MerchantPolicy:
     merchant_id: str
     max_discount_pct: float
     # RBI recovery-agent directions: contact window in customer local time.
+    # Half-open [start, end). start > end means the window wraps midnight
+    # (20 -> 6 permits 20:00-05:59); start == end means no permitted hours.
     contact_window_start_hour: int = 8
     contact_window_end_hour: int = 19
+    # TCCCPR 2018 registers consent per *mode*. Enforced by
+    # CHANNEL_NOT_PERMITTED -- see FAILURES.md #14 for the release in which
+    # it was not.
     allowed_channels: tuple[Channel, ...] = (
         Channel.WHATSAPP,
         Channel.VOICE,
         Channel.EMAIL,
         Channel.SMS,
     )
+
+    def __post_init__(self) -> None:
+        # Fail where the bug is, not three modules later (FAILURES.md #9, #13).
+        if not 0.0 <= self.max_discount_pct <= 100.0:
+            raise ValueError(
+                f"max_discount_pct must be within [0, 100], got {self.max_discount_pct}")
+        for name in ("contact_window_start_hour", "contact_window_end_hour"):
+            h = getattr(self, name)
+            if not 0 <= h <= 24:
+                raise ValueError(f"{name} must be within [0, 24], got {h}")
 
 
 @dataclass(frozen=True)
@@ -112,6 +127,14 @@ class Offer:
     discount_pct: float
     # What the agent *told the customer* about expiry (its claim).
     claimed_expires_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        # A negative discount is a surcharge; >100% pays the customer. Neither
+        # is something a checker should form an opinion about -- the harness
+        # that produced it is broken, and a -5% offer used to be judged CLEAN.
+        if not 0.0 <= self.discount_pct <= 100.0:
+            raise ValueError(
+                f"discount_pct must be within [0, 100], got {self.discount_pct}")
 
 
 @dataclass(frozen=True)
@@ -159,6 +182,15 @@ class Transcript:
     expected_violations: tuple[str, ...] = ()
     notes: str = ""
     meta: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        # Two turns sharing one idx have no defined order, which silently
+        # defeats every ordering fix in FAILURES.md #2 and makes gateway
+        # decisions ambiguous.
+        idxs = [t.idx for t in self.turns]
+        if len(idxs) != len(set(idxs)):
+            dup = sorted({i for i in idxs if idxs.count(i) > 1})
+            raise ValueError(f"duplicate turn idx in {self.transcript_id}: {dup}")
 
     def agent_turns(self) -> list[Turn]:
         return [t for t in self.turns if t.actor is Actor.AGENT]
