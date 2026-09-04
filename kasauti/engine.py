@@ -59,6 +59,21 @@ _ALLOWED_IMPORTS = {
     # allowlist. A blocklist would have said nothing and I would have learned
     # nothing -- see FAILURES.md #1 and #4.
     "collections",
+    # Added for the consortium layer (kasauti/consortium.py), which needs
+    # sha256 to build the salted join key that lets merchants pool data
+    # without exchanging plaintext identifiers.
+    #
+    # `hashlib` is genuinely pure -- sha256 of the same bytes is the same
+    # digest on every machine forever, which is exactly the property the
+    # consortium join needs. It reaches no network, clock or RNG.
+    #
+    # This is the third time the allowlist has grown by hand, and each time
+    # the guard fired on my own legitimate code first. That is the design
+    # working as intended, not friction to be engineered away: every entry
+    # here is a capability I had to consciously grant. A blocklist would
+    # have silently permitted all three and taught me nothing.
+    # See FAILURES.md #1, #5 and #9.
+    "hashlib",
 }
 
 # These are unambiguous: no legitimate spelling of them exists in a pure checker.
