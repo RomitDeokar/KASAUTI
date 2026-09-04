@@ -49,6 +49,16 @@ class Verdict:
 _ALLOWED_IMPORTS = {
     "__future__", "kasauti", "kasauti.schema", "dataclasses", "enum",
     "datetime", "typing",
+    # Added for the cross-episode layer (kasauti/crossepisode.py), which needs
+    # to group episodes by customer. `collections` is pure -- it reaches no
+    # network, clock or RNG.
+    #
+    # Note what happened here: adding a legitimate stdlib import made the
+    # guard FAIL, and the right response was to extend the allowlist by hand
+    # rather than to loosen the check. That is the intended cost of an
+    # allowlist. A blocklist would have said nothing and I would have learned
+    # nothing -- see FAILURES.md #1 and #4.
+    "collections",
 }
 
 # These are unambiguous: no legitimate spelling of them exists in a pure checker.
