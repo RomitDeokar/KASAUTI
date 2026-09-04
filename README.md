@@ -16,7 +16,15 @@ separation is enforced by a static guard, not by a promise in a README.
 ```bash
 git clone https://github.com/RomitDeokar/razorpay.git && cd razorpay
 make demo          # no API key, no network, no install beyond stdlib+pytest
+make test          # 383 tests; wants hypothesis, and says so if it is missing
 ```
+
+That second line used to exit 2 and run **zero** tests without `hypothesis`
+installed — the claim on the line above it was true of `make demo` and false
+of `make test`. It is now true of both: the property tests degrade to reported
+skips and the 368 deterministic tests still run. See
+[FAILURES.md](FAILURES.md) #12, which is the entry I'd read first if I were
+reviewing this, because it is a bug in the repo's own first instruction.
 
 ---
 
@@ -47,7 +55,7 @@ make demo        # the full suite + the Agent Studio launch-demo exhibit
 make consortium  # abuse invisible to every merchant involved
 make equivalence # certification == enforcement, proven on all 85
 make baselines   # the two approaches KASAUTI claims to beat
-make test        # 371 tests
+make test        # 383 tests (368 of them with stdlib + pytest alone)
 ```
 
 ---
@@ -176,7 +184,22 @@ written as things broke rather than reconstructed afterwards. The pattern
 worth noticing is that **every bug in it was found by tooling I built to
 attack my own work**, not by re-reading code.
 
-The one I'd lead with — #7, found while writing this layer:
+Twelve entries now. The two most recent, #10 and #11, are the same defect in
+my **test design** rather than in any rule: every consortium fixture I wrote
+lived in the narrow region of input space where the abuse is obvious — tightly
+clustered timestamps, one merchant holding one opt-out. The rules were never
+wrong about the cases I imagined. They were wrong about *ordinary* customers.
+A six-year-old purchase was reported as discount laundering, and a merchant
+that breached its **own** opt-out was reported as a cross-merchant breach
+blaming a different merchant — with an evidence string asserting "both
+merchants are individually compliant" about one that was not.
+
+Ordinary is the input distribution that actually shows up in production, and
+false positives are the expensive direction here: a missed violation costs
+some margin, while a compliance queue full of noise ends with the operator
+switching the tool off — after which the real findings are missed too.
+
+The one I'd still lead with is #7, found while writing this layer:
 
 Blank customer identifiers hashed to a perfectly valid-looking join key. Every
 merchant reporting a customer with a missing phone number joined onto that
@@ -222,7 +245,7 @@ kasauti/
   adversary.py     the LLM red-teamer (offline mode is the default)
   baselines.py     the systems KASAUTI claims to beat
 corpus/            85 transcripts + histories + consortium fixtures
-tests/             371 tests, incl. property-based and regression
+tests/             383 tests, incl. property-based and regression
 docs/INTERPRETATION.md   prose → predicate, every judgement call
 FAILURES.md        what broke
 NOT_CHECKED.md     what this does not prove
@@ -236,6 +259,13 @@ Python 3.10+. Runtime dependencies: **none** beyond the standard library.
 pip install -r requirements.txt   # pytest + hypothesis, for tests only
 make demo
 ```
+
+`hypothesis` is genuinely optional. Without it, `make test` runs 368 tests
+and reports the 15 property-based ones as skipped with an install hint,
+rather than dying at collection as it used to. What it will never do is let a
+property test *pass* while the engine that checks it is absent — a skip is
+visible in the summary, a false pass is not
+(`test_optional_dependency_shim_reexports_the_real_library`).
 
 The LLM adversary uses `GEMINI_API_KEY` if present and falls back to seeded
 combinatorial mutation otherwise, so **the demo runs on a plane** and the

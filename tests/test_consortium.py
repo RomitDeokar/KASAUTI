@@ -17,8 +17,7 @@ that accused six unrelated people of being one harassed customer.
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
-from hypothesis import strategies as st
+from _hypothesis_compat import given, settings, st
 
 from corpus.consortium_fixtures import ALL_FIXTURES, _c
 from kasauti.consortium import (
@@ -265,3 +264,193 @@ def test_exact_ceiling_does_not_fire():
                                  max_discount_pct=0.3))
     assert not [f for f in evaluate_consortium(led)
                 if f.rule_id == "CEILING_LAUNDERING_NETWORK"]
+
+
+# ---------------------------------------------------------------------------
+# Regressions: FAILURES.md #10, #11, #12
+#
+# Each of these three failed against the code as it shipped in the previous
+# commit. They are the reason this file grew, and they were all found by
+# probing the layer's own de-duplication and windowing assumptions rather than
+# by re-reading the module.
+# ---------------------------------------------------------------------------
+def test_merchant_breaching_its_own_optout_is_not_a_network_finding():
+    """FAILURES.md #10 -- the double-reporting bug, and the wrong-blame bug.
+
+    MERCH_B holds its own opt-out and contacts after it. That is
+    crossepisode.py's SUPPRESSION_BREACH at BLOCK severity, and the network
+    layer must stay silent so an operator does not see one event twice at two
+    severities.
+
+    N5_SINGLE_MERCHANT_DEDUP already tested this shape -- but with only ONE
+    merchant in the ledger, where `min_merchants`-style reasoning made it pass
+    for the wrong reason. The bug needed TWO merchants that BOTH hold
+    opt-outs, because the old guard silenced only the holder of the EARLIEST
+    opt-out. With A opting out first, B's breach of B's own suppression got
+    reported as a cross-merchant breach *against A* -- double-reported AND
+    attributed to the wrong merchant.
+    """
+    cfg = ConsortiumConfig()
+    led = ConsortiumLedger(config=cfg)
+    led.add(MerchantReport.build(
+        "9876543210", cfg.salt, "MERCH_A",
+        opted_out_at=_c(1), contacts=((_c(0), "sms"),),
+    ))
+    led.add(MerchantReport.build(
+        "9876543210", cfg.salt, "MERCH_B",
+        opted_out_at=_c(2), contacts=((_c(5), "sms"),),
+    ))
+    breaches = [f for f in evaluate_consortium(led)
+                if f.rule_id == "SUPPRESSION_BREACH_NETWORK"]
+    assert breaches == [], (
+        "network layer re-reported an event the single-merchant BLOCK layer "
+        f"owns: {[f.evidence for f in breaches]}"
+    )
+
+
+def test_true_cross_merchant_suppression_breach_still_fires():
+    """The dedup fix must not silence the shape the layer exists for.
+
+    A guard that suppresses too much is the failure mode of every dedup fix,
+    so this is asserted immediately next to the test above rather than
+    somewhere else in the file.
+    """
+    cfg = ConsortiumConfig()
+    led = ConsortiumLedger(config=cfg)
+    led.add(MerchantReport.build("9876543210", cfg.salt, "MERCH_A",
+                                 opted_out_at=_c(1)))
+    led.add(MerchantReport.build("9876543210", cfg.salt, "MERCH_B",
+                                 contacts=((_c(5), "sms"),)))
+    ids = [f.rule_id for f in evaluate_consortium(led)]
+    assert "SUPPRESSION_BREACH_NETWORK" in ids
+
+
+def test_merchant_contacting_before_its_own_optout_still_counts():
+    """Boundary: B's opt-out arriving AFTER the contact must not excuse it.
+
+    The dedup guard keys on whether the merchant's own opt-out predates the
+    contact. If it keyed merely on "this merchant has an opt-out somewhere",
+    a merchant could contact a suppressed customer and then record its own
+    opt-out afterwards to launder the finding away.
+    """
+    cfg = ConsortiumConfig()
+    led = ConsortiumLedger(config=cfg)
+    led.add(MerchantReport.build("9876543210", cfg.salt, "MERCH_A",
+                                 opted_out_at=_c(1)))
+    led.add(MerchantReport.build("9876543210", cfg.salt, "MERCH_B",
+                                 contacts=((_c(3), "sms"),),
+                                 opted_out_at=_c(9)))
+    ids = [f.rule_id for f in evaluate_consortium(led)]
+    assert "SUPPRESSION_BREACH_NETWORK" in ids, (
+        "a later self-recorded opt-out must not retroactively excuse a "
+        "contact that breached another merchant's suppression"
+    )
+
+
+def test_offers_outside_the_window_are_not_laundering():
+    """FAILURES.md #11 -- the unbounded-window false positive.
+
+    Two 10% offers six YEARS apart, each inside its own merchant's 10%
+    ceiling, used to sum to 20% and fire. That is a repeat customer, not
+    discount laundering. This is the false positive a merchant would actually
+    have complained about, and it was invisible because every fixture in the
+    suite happened to be tightly clustered in time.
+    """
+    cfg = ConsortiumConfig()
+    led = ConsortiumLedger(config=cfg)
+    led.add(MerchantReport.build("9876543210", cfg.salt, "MERCH_A",
+                                 offers=((_c(0), "SKU_X", 10.0),),
+                                 max_discount_pct=10.0))
+    led.add(MerchantReport.build("9876543210", cfg.salt, "MERCH_B",
+                                 offers=((_c(365 * 6), "SKU_X", 10.0),),
+                                 max_discount_pct=10.0))
+    launder = [f for f in evaluate_consortium(led)
+               if f.rule_id == "CEILING_LAUNDERING_NETWORK"]
+    assert launder == [], (
+        f"offers {365 * 6} days apart flagged as stacked: "
+        f"{[f.evidence for f in launder]}"
+    )
+
+
+def test_offers_inside_the_window_are_still_laundering():
+    """The window fix must not silence genuine stacking."""
+    cfg = ConsortiumConfig()
+    led = ConsortiumLedger(config=cfg)
+    for i, m in enumerate(("MERCH_A", "MERCH_B")):
+        led.add(MerchantReport.build("9876543210", cfg.salt, m,
+                                     offers=((_c(i), "SKU_X", 10.0),),
+                                     max_discount_pct=10.0))
+    ids = [f.rule_id for f in evaluate_consortium(led)]
+    assert "CEILING_LAUNDERING_NETWORK" in ids
+
+
+def test_laundering_window_slides_and_finds_the_worst_burst():
+    """A burst inside the window must be caught even when padded by old,
+    innocent offers on the same SKU.
+
+    The naive window implementation only checks the LAST offer's trailing
+    window, which misses a burst followed by a long quiet period.
+    """
+    cfg = ConsortiumConfig()
+    led = ConsortiumLedger(config=cfg)
+    led.add(MerchantReport.build("9876543210", cfg.salt, "MERCH_A",
+                                 offers=((_c(0), "SKU_X", 10.0),),
+                                 max_discount_pct=10.0))
+    led.add(MerchantReport.build("9876543210", cfg.salt, "MERCH_B",
+                                 offers=((_c(1), "SKU_X", 10.0),),
+                                 max_discount_pct=10.0))
+    # A much later, lone offer that is innocent on its own.
+    led.add(MerchantReport.build("9876543210", cfg.salt, "MERCH_C",
+                                 offers=((_c(400), "SKU_X", 5.0),),
+                                 max_discount_pct=10.0))
+    ids = [f.rule_id for f in evaluate_consortium(led)]
+    assert "CEILING_LAUNDERING_NETWORK" in ids, (
+        "the early burst was missed because only the final offer's window "
+        "was examined"
+    )
+
+
+def test_bystander_merchant_ceiling_does_not_leak():
+    """A merchant that never offered this SKU must not raise its threshold.
+
+    This one was NOT a bug -- the max() was already correctly scoped inside
+    the offer loop. It is pinned anyway because hoisting that line out of the
+    loop is a natural-looking refactor that would silently disable the rule
+    for any customer who also shops at one permissive merchant.
+    """
+    cfg = ConsortiumConfig()
+    led = ConsortiumLedger(config=cfg)
+    led.add(MerchantReport.build("9876543210", cfg.salt, "MERCH_A",
+                                 offers=((_c(0), "SKU_X", 10.0),),
+                                 max_discount_pct=10.0))
+    led.add(MerchantReport.build("9876543210", cfg.salt, "MERCH_B",
+                                 offers=((_c(1), "SKU_X", 10.0),),
+                                 max_discount_pct=10.0))
+    led.add(MerchantReport.build("9876543210", cfg.salt, "MERCH_C",
+                                 contacts=((_c(2), "sms"),),
+                                 max_discount_pct=90.0))
+    ids = [f.rule_id for f in evaluate_consortium(led)]
+    assert "CEILING_LAUNDERING_NETWORK" in ids, (
+        "an unrelated merchant's permissive ceiling silenced the rule"
+    )
+
+
+def test_evidence_and_citation_disclose_the_window():
+    """The window is an operator policy choice, so it must appear in the
+    output a reviewer reads, not only in the source.
+
+    FAILURES.md #7 was two README claims the repo could not back. The same
+    discipline applies to a Finding: a threshold that shapes the verdict and
+    is invisible in the evidence is an unfalsifiable claim.
+    """
+    cfg = ConsortiumConfig()
+    led = ConsortiumLedger(config=cfg)
+    for i, m in enumerate(("MERCH_A", "MERCH_B")):
+        led.add(MerchantReport.build("9876543210", cfg.salt, m,
+                                     offers=((_c(i), "SKU_X", 10.0),),
+                                     max_discount_pct=10.0))
+    f = next(f for f in evaluate_consortium(led)
+             if f.rule_id == "CEILING_LAUNDERING_NETWORK")
+    assert f"{cfg.window_days}d" in f.evidence
+    assert f"{cfg.window_days}d" in f.citation
+    assert "OPERATOR POLICY" in f.citation

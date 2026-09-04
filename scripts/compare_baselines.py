@@ -84,7 +84,7 @@ def main() -> int:
     os.makedirs(ART, exist_ok=True)
     with open(os.path.join(ART, "baselines.json"), "w") as fh:
         json.dump(results, fh, indent=2)
-    print(f"\nwrote artifacts/baselines.json")
+    print("\nwrote artifacts/baselines.json")
     return 0
 
 

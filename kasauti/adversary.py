@@ -22,7 +22,6 @@ import itertools
 import json
 import os
 import random
-from datetime import timedelta
 
 from corpus.builder import _at, _cat, _pol
 from kasauti.schema import (

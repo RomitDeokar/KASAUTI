@@ -10,12 +10,11 @@ full reasoning attached, rather than just a number.
 from __future__ import annotations
 
 import os
-import sys
 
 from docx import Document
 from docx.enum.table import WD_TABLE_ALIGNMENT
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Inches, Pt, RGBColor
+
+from docx.shared import Inches, Pt
 
 OUT_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs")

@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import pytest
+
 from kasauti.engine import assert_no_llm, judge
 from kasauti.rules.checkers import (
     check_discount_ceiling,
@@ -208,3 +210,54 @@ def test_no_corpus_transcript_reports_a_phantom_prior_offer():
                 f"{t.transcript_id}: {f.rule_id} claims a 0% prior offer -- "
                 f"{f.evidence}"
             )
+
+
+# ---------------------------------------------------------------------------
+# FAILURES.md #12 -- the README claim that was false
+# ---------------------------------------------------------------------------
+def test_optional_dependency_shim_reexports_the_real_library():
+    """When hypothesis IS installed, the shim must be a pass-through.
+
+    The danger of an optional-dependency shim is that it silently replaces a
+    real test engine with a stub in an environment where the real one exists,
+    turning 72 property tests into 72 no-ops that still report as passing.
+    So: assert the shim hands back the genuine objects.
+    """
+    import importlib
+    import os
+    import sys
+
+    sys.path.insert(0, os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tests"))
+    compat = importlib.import_module("_hypothesis_compat")
+
+    try:
+        import hypothesis
+        import hypothesis.strategies
+    except ImportError:
+        pytest.skip("hypothesis absent: the degraded path is what runs here")
+
+    assert compat.HAS_HYPOTHESIS is True
+    assert compat.given is hypothesis.given
+    assert compat.settings is hypothesis.settings
+    assert compat.st is hypothesis.strategies
+
+
+def test_readme_stdlib_claim_names_its_own_exception():
+    """A claim in a README is a test nobody runs. This one runs it.
+
+    The README says `make demo` needs nothing beyond stdlib+pytest. That was
+    true of `make demo` and FALSE of `make test`, which died at collection
+    without hypothesis. Rather than delete the claim, the claim now has to
+    disclose the optional dependency in the same breath.
+    """
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    readme = (root / "README.md").read_text(encoding="utf-8")
+
+    assert "hypothesis" in readme.lower(), (
+        "README does not mention the optional test dependency at all"
+    )
+    reqs = (root / "requirements.txt").read_text(encoding="utf-8")
+    assert "hypothesis" in reqs.lower()

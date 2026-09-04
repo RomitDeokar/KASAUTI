@@ -54,7 +54,6 @@ def test_guard_still_catches_an_impure_cross_checker():
     import sys
     sys.modules["fake_impure_cross"] = mod
     try:
-        import inspect
         # inspect.getsource needs the source discoverable; patch linecache.
         import linecache
         linecache.cache["fake_impure_cross.py"] = (

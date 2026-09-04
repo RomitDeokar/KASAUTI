@@ -24,7 +24,7 @@ from kasauti.schema import (
     Turn,
 )
 
-from .builder import DAY, _at, _cat, _pol
+from .builder import _at, _cat, _pol
 
 
 def _ep(tid: str, customer: str, turns: list[Turn], **kw) -> Episode:
