@@ -1,0 +1,35 @@
+# To enable: mkdir -p .github/workflows && cp ci/github-actions-ci.yml .github/workflows/ci.yml
+# (Committed here because the bot token that pushed this branch lacks the
+#  `workflows` scope; the file itself is a standard Actions workflow.)
+# Two jobs on purpose. The README claims `make test` works with bare
+# stdlib + pytest AND with hypothesis. FAILURES.md #12 and #16 are both
+# about that claim being false in an environment I had not actually run.
+# CI now runs both environments so the claim is checked, not asserted.
+name: ci
+on: [push, pull_request]
+jobs:
+  full:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r requirements.txt
+      - run: make test
+      - run: make demo
+      - run: make consortium
+      - run: make equivalence
+      - run: make baselines
+      - name: judge the shipped examples via the CLI (exit codes are the contract)
+        run: |
+          python -m kasauti judge examples/medianama_demo.json; test $? -eq 1
+          python -m kasauti judge examples/clean_overnight_window.json; test $? -eq 0
+          echo '{}' | python -m kasauti judge -; test $? -eq 2
+  bare-stdlib:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install pytest
+      - run: make test

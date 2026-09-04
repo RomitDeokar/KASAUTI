@@ -7,7 +7,7 @@ same transcript in => same verdict out, forever, on any machine.
 The `assert_no_llm` guard below is the load-bearing piece of the whole
 project's AI-judgment claim. It is not a README promise, it is a test:
 we walk the bytecode of every checker and fail if it can reach a network
-call or a model client. See tests/test_no_llm_in_checkers.py.
+call or a model client. See tests/test_purity.py.
 """
 from __future__ import annotations
 

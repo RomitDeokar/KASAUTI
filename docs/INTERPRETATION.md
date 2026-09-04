@@ -406,9 +406,9 @@ If I were reviewing KASAUTI, in order:
    Read the hard-negative false-positive rate first; it is the only number
    here that is not self-graded.
 2. **"1.0 precision means your corpus is too easy."** Partly fair. The
-   defence is `compare_baselines.py`: the lexical detector scores 0.75/0.73 on
-   *the identical corpus with identical labels* and wrongly blocks 30% of
-   clean transcripts. Same exam, different marks.
+   defence is `compare_baselines.py`: the lexical detector scores 0.74
+   precision / 0.61 recall on *the identical 98 with identical labels* and
+   wrongly blocks 4 of 18 (22%) clean transcripts. Same exam, different marks.
 3. **"Your interpretations are conservative, so you under-enforce."** Yes —
    see #1, #2, #3, #4. Every case is documented above rather than hidden. I'd
    rather a suite that misses things it can't prove than one that fires on

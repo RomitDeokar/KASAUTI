@@ -174,9 +174,13 @@ What I did about it, rather than deleting the number:
 2. **Built the baselines that could make KASAUTI look pointless**
    (`kasauti/baselines.py`) and scored them on the identical corpus with the
    identical labels. The lexical detector — the thing most people build first
-   — scores **precision 0.752 / recall 0.733 / exact-match 0.367**, and
-   wrongly blocks **3 of 10 clean agents**. That gap is the actual claim; the
-   1.000 alone is not.
+   — scored **precision 0.752 / recall 0.733 / exact-match 0.367** on the
+   79-transcript corpus this entry was written against, and wrongly blocked
+   **3 of 10 clean agents**. On the current 98 (`make baselines`, checked
+   while writing #19) it is **0.735 / 0.606 / 0.316** and **4 of 18** clean
+   agents — recall *fell* as the corpus grew, because the newer rules
+   (provenance, mandate, hardship) are structural and have no keyword to
+   match. That gap is the actual claim; the 1.000 alone is not.
 3. **Wrote hard negatives designed to break my own rules**: truthful-but-urgent
    copy, discounts that *drop* after a refusal, 08:00/18:59/19:00 boundary
    triples, honest rounding. The lexical baseline fires on four of them.
@@ -917,7 +921,45 @@ were email-shaped, because the bug I was fixing was phone-shaped. Fixing a
 bug class in one field and declaring the class closed is how it comes back
 in the next field.
 
+## #19 — The suite could only judge its own corpus
+
+**Not a crash. A scope failure, and the one a reviewer would find fastest.**
+
+After eighteen entries about correctness, a reviewer asked the simplest
+question: "can I run this on *my* agent's transcript?" The honest answer was
+no. Every transcript the engine had ever judged was constructed in Python
+inside `corpus/builder.py`. There was no serialiser, no parser, no CLI. A
+"conformance suite for money-moving AI agents" that only conforms its own
+fixtures is a test suite about itself.
+
+**Fix.** `kasauti/io.py` (strict JSON ↔ `Transcript`) and `kasauti/cli.py`
+(`python -m kasauti judge|export|rules`). Exit codes are the contract:
+0 pass, 1 blocked, **2 unparseable — which is not a pass**.
+
+**What I got wrong on the first pass of the fix, before it was committed.**
+The natural serialiser is `dataclasses.asdict` + `json.dumps(default=str)`.
+It round-trips nothing correctly: enums come back as strings the checkers
+compare with `is`, datetimes come back as strings that `>` compares
+lexically, and tuples come back as lists that break `frozen=True` hashing.
+Worse, a lenient parser (`d.get("is_optout", False)`) would have turned a
+typo — `is_opt_out` — into a silent CLEAN verdict, which is the exact
+failure mode #9, #13 and #18 are all about: garbage accepted with a
+confident-looking output. So the parser rejects unknown keys, rejects `true`
+where an integer is expected (bool is an int subclass in Python), rejects a
+catalog key that disagrees with its item's `sku`, and wraps the schema's own
+`ValueError`s so `discount_pct: 150` names `$.turns[2].offer`.
+
+**Tests.** `tests/test_io.py`: every one of the 98 corpus transcripts
+round-trips to an identical verdict hash and to an identical dict on
+re-serialisation (196 cases); thirteen refusal cases each asserting the
+path in the message; nine CLI tests pinning the exit codes.
+
+**Lesson.** Eighteen entries about the engine being right, zero about
+whether anyone but me could feed it input. "Does it run" is the second
+rubric line; "would you trust it" is the third. A tool you cannot point at
+your own data is one you cannot trust *on* your own data.
+
 ```
-full environment:       490 passed,  80 skipped, exit 0
-bare stdlib + pytest:   474 passed,  96 skipped, exit 0
+full environment:       707 passed,  80 skipped, exit 0
+bare stdlib + pytest:   691 passed,  96 skipped, exit 0
 ```

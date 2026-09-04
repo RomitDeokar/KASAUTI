@@ -16,13 +16,14 @@ separation is enforced by a static guard, not by a promise in a README.
 ```bash
 git clone https://github.com/RomitDeokar/KASAUTI.git && cd KASAUTI
 make demo          # no API key, no network, no install beyond stdlib+pytest
-make test          # 490 tests; wants hypothesis, and says so if it is missing
+make test          # 707 tests; wants hypothesis, and says so if it is missing
+python -m kasauti judge examples/medianama_demo.json   # or your own transcript
 ```
 
 That second line used to exit 2 and run **zero** tests without `hypothesis`
 installed — the claim on the line above it was true of `make demo` and false
 of `make test`. It is now true of both: the property tests degrade to reported
-skips and the 474 deterministic tests still run. See
+skips and the 691 deterministic tests still run. See
 [FAILURES.md](FAILURES.md) #12, which is the entry I'd read first if I were
 reviewing this, because it is a bug in the repo's own first instruction.
 
@@ -36,7 +37,7 @@ On a 98-transcript corpus (17 handwritten, 15 hard negatives, 6 provenance,
 | System | Precision | Recall | Exact-match | Clean txns wrongly blocked |
 |---|---|---|---|---|
 | **KASAUTI (deterministic)** | **1.00** | **1.00** | **1.00** | **0 / 18** |
-| Lexical keyword baseline | 0.73 | 0.63 | 0.31 | 4 / 18 |
+| Lexical keyword baseline | 0.73 | 0.61 | 0.32 | 4 / 18 |
 | LLM judge baseline | *requires `GEMINI_API_KEY`; skip is reported, not hidden* | | | |
 
 **Read that 1.00 with suspicion, and read [NOT_CHECKED.md](NOT_CHECKED.md)
@@ -55,8 +56,36 @@ make demo        # the full suite + the Agent Studio launch-demo exhibit
 make consortium  # abuse invisible to every merchant involved
 make equivalence # certification == enforcement, proven on all 98
 make baselines   # the two approaches KASAUTI claims to beat
-make test        # 490 tests (474 of them with stdlib + pytest alone)
+make test        # 707 tests (691 of them with stdlib + pytest alone)
+make judge F=t.json  # judge YOUR transcript: exit 0 pass / 1 blocked / 2 unparseable
 ```
+
+---
+
+## Judge your own transcript
+
+Until the JSON boundary existed the engine could only judge the 98 cases it
+shipped with, which made it a test suite *about its own corpus*. Now:
+
+```bash
+python -m kasauti export MEDIANAMA_DEMO > mine.json   # start from a real one
+$EDITOR mine.json                                     # change what your agent did
+python -m kasauti judge mine.json                     # exit 0 pass / 1 blocked / 2 refused
+python -m kasauti judge mine.json --json | jq .rules_fired
+```
+
+The parser is strict on purpose: unknown keys, wrong types, unknown enum
+values and out-of-range numbers all refuse with the JSON path
+(`$.turns[3].offer.discount_pct`). A transcript that half-parses and gets
+judged CLEAN is worse than one that refuses to parse, so **exit 2 is not a
+pass** — a gate that says "I could not read this, so go ahead" is not a gate.
+Round-tripping every one of the 98 corpus transcripts through JSON reproduces
+its verdict hash exactly (`tests/test_io.py`, 196 parametrised cases).
+
+The harness still owns the language work — `is_optout`, `is_hardship_signal`,
+`price_claims_paise`, `context_sources` are fields *you* set (an LLM may set
+them). The checkers only ever read the structure. That split is the whole
+AI-judgment argument, and the JSON schema makes it visible field by field.
 
 ---
 
@@ -196,7 +225,7 @@ written as things broke rather than reconstructed afterwards. The pattern
 worth noticing is that **every bug in it was found by tooling I built to
 attack my own work**, not by re-reading code.
 
-Eighteen entries now. #17 and #18 are the two an *external* reviewer found
+Nineteen entries now. #17 and #18 are the two an *external* reviewer found
 by running the suite for real: a property test that generated a 100.01%
 discount my own schema correctly refused, and — the one that stings — the
 email branch of the identifier validator I wrote to fix #9 accepting
@@ -264,12 +293,16 @@ kasauti/
   crossepisode.py  3 aggregate rules over one customer's history
   consortium.py    3 network rules across merchants, salted-hash join
   gateway.py       the same predicates, evaluated inline
+  io.py            strict JSON <-> Transcript; refuses, never guesses
+  cli.py           python -m kasauti judge|export|rules
   adversary.py     the LLM red-teamer (offline mode is the default)
   baselines.py     the systems KASAUTI claims to beat
 corpus/            98 transcripts + histories + consortium fixtures
-tests/             490 tests, incl. property-based and regression
+examples/          two corpus cases exported as JSON, to copy from
+tests/             707 tests, incl. property-based, regression, round-trip
 docs/INTERPRETATION.md   prose → predicate, every judgement call
 FAILURES.md        what broke
+ci/               GitHub Actions workflow: full env + bare stdlib env
 NOT_CHECKED.md     what this does not prove
 ```
 
@@ -282,7 +315,7 @@ pip install -r requirements.txt   # pytest + hypothesis, for tests only
 make demo
 ```
 
-`hypothesis` is genuinely optional. Without it, `make test` runs 474 tests
+`hypothesis` is genuinely optional. Without it, `make test` runs 691 tests
 and reports the 16 property-based ones as skipped with an install hint,
 rather than dying at collection as it used to. What it will never do is let a
 property test *pass* while the engine that checks it is absent — a skip is
