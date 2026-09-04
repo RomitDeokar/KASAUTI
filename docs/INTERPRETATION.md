@@ -271,6 +271,56 @@ basis for exceeding a bound.
 
 ---
 
+## Interpretation #10 — CHANNEL_NOT_PERMITTED: consent is per mode, so a channel is a boundary
+
+**Text.** TRAI TCCCPR 2018 defines consent in terms of the *mode* of
+communication (voice call, SMS), and Schedule I registers preferences per
+mode. Razorpay guardrails §2: the merchant's configured boundaries are the
+agent's boundaries.
+
+**Judgement call.** `MerchantPolicy.allowed_channels` is read as the set of
+modes for which the merchant holds consent. An outbound contact on any other
+channel is a BLOCK, regardless of hour, offer, or consent state — because the
+consent on file does not cover that mode. WhatsApp and email are not
+TCCCPR-regulated modes; I apply the same boundary to them anyway, because
+the merchant configured it and the guardrails blog says configured
+boundaries are the ceiling. That extension is mine, not TRAI's.
+
+**What it does NOT do.** It does not model per-customer channel preferences
+(a customer who consented to SMS at merchant A but WhatsApp at merchant B).
+The schema has one channel list per merchant, so that finer grain is not
+representable yet.
+
+**Why this rule is #10 and not #1.** The field it enforces has been in the
+schema since commit 1. Nothing read it until FAILURES.md #14. A configurable
+boundary that nothing enforces is a documentation bug that looks like a
+feature.
+
+---
+
+## Interpretation #11 — CONTACT_WINDOW across midnight, mixed timezones, and price claims without an offer
+
+**Window.** The RBI window is stated as 08:00–19:00 and the checker was
+written as `lo <= hour < hi`. That predicate is only correct when `lo < hi`.
+`lo > hi` is now read as a window that wraps past midnight (20 → 06 permits
+20:00–05:59), and `lo == hi` as *no permitted hours*. A merchant who wants
+24h contact sets `0, 24`. See FAILURES.md #14.
+
+**Mixed timezones.** When exactly one of two compared timestamps carries a
+tzinfo, the checker compares wall-clock values. The merchant's own timestamp
+is the one the customer was told, so the merchant's local reading is the
+fair one. This is only correct if the aware timestamp was *meant* in the
+merchant's zone; NOT_CHECKED.md records the case where it is not.
+
+**Price claims with no offer.** A price the agent quotes without attaching a
+discount is a claim about the list price. If the catalog has exactly one
+SKU, the claim is judged against that item's `price_paise`. If it has
+several and no offer names one, the rule stays silent rather than guess
+which item was meant — consistent with #7's "silence over a guess". See
+FAILURES.md #15.
+
+---
+
 ## Where I would attack this project first
 
 If I were reviewing KASAUTI, in order:

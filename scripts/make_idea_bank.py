@@ -43,7 +43,7 @@ IDEAS = [
             "per-episode, cross-episode, cross-merchant."),
         why=(
             "Feasibility is 9.5 not because the idea is easy but because the "
-            "repo exists and passes 371 tests today. On a one-day horizon that "
+            "repo exists and passes 421 tests today. On a one-day horizon that "
             "is the only variable that matters. It also absorbs the two ideas "
             "you wanted to merge: RazorGate's enforcement demo is gateway.py, "
             "RIWAAJ's cross-merchant shape is consortium.py — both as "
@@ -368,7 +368,7 @@ def build_docx(path: str) -> None:
        "working code exist right now' stops being a tiebreaker and becomes "
        "the dominant term.\n\n"
        "The recommendation is therefore not a new idea. It is: ship KASAUTI, "
-       "which already exists, passes 371 tests, and — after today's work — "
+       "which already exists, passes 421 tests, and — after today's work — "
        "structurally absorbs both RazorGate and RIWAAJ as additional "
        "evaluation scopes over one shared predicate set.")
 
@@ -453,7 +453,7 @@ def build_docx(path: str) -> None:
         r.font.size = Pt(9)
     rows = [
         ("KASAUTI",
-         "rules/checkers.py — 8 per-episode rules, each citing a regulation",
+         "rules/checkers.py — 9 per-episode rules, each citing a regulation",
          "Unchanged: the core conformance suite."),
         ("RazorGate",
          "gateway.py — the same checkers evaluated inline, before each action",
@@ -500,10 +500,11 @@ def build_docx(path: str) -> None:
         "2. Fresh-clone test. git clone into a clean directory, pip install "
         "-r requirements.txt, make demo. If that fails on the judge's machine "
         "nothing else matters.",
-        "3. Write 'what broke' from FAILURES.md #9. They read this answer "
-        "first. It is real, it is specific, it was found by tooling you built "
-        "to attack your own work, and it is pinned by 20 regression tests. Do "
-        "not embellish it.",
+        "3. Write 'what broke' from FAILURES.md #14 (a merchant boundary that "
+        "sat in the schema from commit 1 and nothing enforced) or #9 (the "
+        "phantom join). They read this answer first. Both are real, specific, "
+        "found by tooling you built to attack your own work, and pinned by "
+        "regression tests. Do not embellish.",
         "4. Submit on the 4th, not the 5th.",
     ]:
         _p(doc, txt, size=10)
@@ -513,7 +514,7 @@ def build_docx(path: str) -> None:
     for txt in [
         "Hypothesis — property-based testing; found real bugs in the rules "
         "(FAILURES.md #3), not decoration.",
-        "pytest — 371 tests. The only two dependencies in requirements.txt.",
+        "pytest — 421 tests. The only two dependencies in requirements.txt.",
         "Gemini free tier — the LLM adversary only. Offline seeded mutation "
         "is the default, so the demo reproduces with no key and no network.",
         "Python stdlib (hashlib, ast, dis) — the purity guard and the "
@@ -595,7 +596,7 @@ def build_xlsx(path: str) -> None:
         ["Collision Safety: 10 = Razorpay ships nothing like it, "
          "1 = they ship it today."],
         [""],
-        ["RECOMMENDATION: ship KASAUTI. It exists, passes 371 tests, and now "
+        ["RECOMMENDATION: ship KASAUTI. It exists, passes 421 tests, and now "
          "absorbs RazorGate (gateway.py) and RIWAAJ (consortium.py) as "
          "additional evaluation scopes over ONE predicate set."],
         [""],

@@ -220,8 +220,21 @@ def score_corpus(transcripts: list[Transcript]) -> dict:
     fn = sum(m.fn for m in per_rule.values())
     origins = Counter(t.origin for t in transcripts)
 
+    # BUGFIX (FAILURES.md #13): this dict used to carry `generated_at`
+    # (wall clock). The README calls artifacts/metrics.json reproducible, and
+    # every `make demo` produced a git diff -- the exact noise a real metric
+    # regression would hide inside. The artifact now identifies its input by
+    # content (a digest of transcript ids + expected labels), not by when it
+    # was produced. Same corpus in, byte-identical file out.
+    digest = hashlib.sha256(
+        "\n".join(
+            f"{t.transcript_id}|{t.origin}|{','.join(sorted(t.expected_violations))}"
+            for t in transcripts
+        ).encode()
+    ).hexdigest()[:16]
+
     return {
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "corpus_digest": digest,
         "n_transcripts": len(transcripts),
         "origins": dict(origins),
         "micro": {

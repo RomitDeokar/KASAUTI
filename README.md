@@ -16,13 +16,13 @@ separation is enforced by a static guard, not by a promise in a README.
 ```bash
 git clone https://github.com/RomitDeokar/razorpay.git && cd razorpay
 make demo          # no API key, no network, no install beyond stdlib+pytest
-make test          # 383 tests; wants hypothesis, and says so if it is missing
+make test          # 421 tests; wants hypothesis, and says so if it is missing
 ```
 
 That second line used to exit 2 and run **zero** tests without `hypothesis`
 installed — the claim on the line above it was true of `make demo` and false
 of `make test`. It is now true of both: the property tests degrade to reported
-skips and the 368 deterministic tests still run. See
+skips and the 406 deterministic tests still run. See
 [FAILURES.md](FAILURES.md) #12, which is the entry I'd read first if I were
 reviewing this, because it is a bug in the repo's own first instruction.
 
@@ -30,18 +30,18 @@ reviewing this, because it is a bug in the repo's own first instruction.
 
 ## Metrics first
 
-On an 85-transcript corpus (9 handwritten, 10 hard negatives, 6 provenance,
+On an 89-transcript corpus (11 handwritten, 12 hard negatives, 6 provenance,
 60 LLM-adversary-generated), scored against the same labels for every system:
 
 | System | Precision | Recall | Exact-match | Clean txns wrongly blocked |
 |---|---|---|---|---|
-| **KASAUTI (deterministic)** | **1.00** | **1.00** | **1.00** | **0 / 13** |
-| Lexical keyword baseline | 0.76 | 0.72 | 0.38 | 3 / 13 |
+| **KASAUTI (deterministic)** | **1.00** | **1.00** | **1.00** | **0 / 15** |
+| Lexical keyword baseline | 0.73 | 0.63 | 0.31 | 4 / 15 |
 | LLM judge baseline | *requires `GEMINI_API_KEY`; skip is reported, not hidden* | | | |
 
 **Read that 1.00 with suspicion, and read [NOT_CHECKED.md](NOT_CHECKED.md)
 before you quote it.** It measures agreement between my checkers and my own
-labels on a corpus I built. A perfect score on 85 cases mostly means the
+labels on a corpus I built. A perfect score on 89 cases mostly means the
 corpus has not yet found a case the rules get wrong. The honest version of
 this claim, in full, is §1 and §2 of NOT_CHECKED.md.
 
@@ -53,9 +53,9 @@ arithmetic violation.
 ```
 make demo        # the full suite + the Agent Studio launch-demo exhibit
 make consortium  # abuse invisible to every merchant involved
-make equivalence # certification == enforcement, proven on all 85
+make equivalence # certification == enforcement, proven on all 89
 make baselines   # the two approaches KASAUTI claims to beat
-make test        # 383 tests (368 of them with stdlib + pytest alone)
+make test        # 421 tests (406 of them with stdlib + pytest alone)
 ```
 
 ---
@@ -83,7 +83,7 @@ from two specs diverge, invisibly, until it costs money.
 So KASAUTI does not implement a second rule set. There is exactly one set of
 predicates, and `kasauti/gateway.py` is a different *evaluation strategy* over
 the same functions. They cannot drift, because they are the same code.
-`scripts/prove_equivalence.py` proves it on all 85 transcripts.
+`scripts/prove_equivalence.py` proves it on all 89 transcripts.
 
 The novel artifact is the proof, not the gate.
 
@@ -121,9 +121,10 @@ blocklist would have permitted all three and taught me nothing.
 Each exists because the one below it has a hole that better rules cannot fix.
 The hole is in the **arity** of the question, not the quality of the answer.
 
-**1. Per-episode** (`kasauti/rules/checkers.py`) — 8 rules over one
+**1. Per-episode** (`kasauti/rules/checkers.py`) — 9 rules over one
 conversation. False urgency, escalating pressure, consent, opt-out, contact
-window, discount ceiling, fabricated facts, prompt injection.
+window, discount ceiling, fabricated facts, prompt injection, and — since
+FAILURES.md #14 — the channel the merchant actually permitted.
 
 **2. Cross-episode** (`kasauti/crossepisode.py`) — the shapes one transcript
 cannot show. Customer opts out in episode 7, is contacted in episode 41. Eleven
@@ -184,7 +185,12 @@ written as things broke rather than reconstructed afterwards. The pattern
 worth noticing is that **every bug in it was found by tooling I built to
 attack my own work**, not by re-reading code.
 
-Twelve entries now. The two most recent, #10 and #11, are the same defect in
+Sixteen entries now. #13–#16 came from one deliberate pass: feed every rule
+the input a *real* integration would produce (aware webhook timestamps, a
+merchant whose contact window wraps midnight, a WhatsApp-only channel list,
+a plain misquote with no discount attached) instead of the input my own
+fixtures produce. Six defects, one of them a field that had been in the
+schema since commit 1 and that no rule ever read. #10 and #11 are the same defect in
 my **test design** rather than in any rule: every consortium fixture I wrote
 lived in the narrow region of input space where the abuse is obvious — tightly
 clustered timestamps, one merchant holding one opt-out. The rules were never
@@ -244,8 +250,8 @@ kasauti/
   gateway.py       the same predicates, evaluated inline
   adversary.py     the LLM red-teamer (offline mode is the default)
   baselines.py     the systems KASAUTI claims to beat
-corpus/            85 transcripts + histories + consortium fixtures
-tests/             383 tests, incl. property-based and regression
+corpus/            89 transcripts + histories + consortium fixtures
+tests/             421 tests, incl. property-based and regression
 docs/INTERPRETATION.md   prose → predicate, every judgement call
 FAILURES.md        what broke
 NOT_CHECKED.md     what this does not prove
@@ -260,7 +266,7 @@ pip install -r requirements.txt   # pytest + hypothesis, for tests only
 make demo
 ```
 
-`hypothesis` is genuinely optional. Without it, `make test` runs 368 tests
+`hypothesis` is genuinely optional. Without it, `make test` runs 406 tests
 and reports the 15 property-based ones as skipped with an install hint,
 rather than dying at collection as it used to. What it will never do is let a
 property test *pass* while the engine that checks it is absent — a skip is

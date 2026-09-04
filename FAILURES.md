@@ -702,3 +702,136 @@ So the claim now has a test: `test_readme_stdlib_claim_names_its_own_exception`.
 And the honest version of the claim is in the README — not "needs nothing",
 but "needs nothing; the property tests want hypothesis and say so when it is
 missing".
+
+---
+
+## #13 — A checker crashed instead of judging, and a "reproducible" artifact changed on every run
+
+**How it was found.** Not by a test. By writing a twelve-line probe script
+that fed each rule the input I *would* have used if I were integrating this
+from a real Razorpay webhook rather than from my own fixtures. Webhook
+timestamps are ISO-8601 with a `Z`. My harness timestamps were naive.
+
+**What broke, part one.** `check_false_urgency` compared
+`offer.claimed_expires_at < item.offer_expires_at`. With one side aware and
+the other naive, Python raises `TypeError: can't compare offset-naive and
+offset-aware datetimes`. An exception inside a checker is the worst verdict
+the engine can produce: it dies, emits no Finding, and any caller with a
+broad `except` reads "no findings" as CLEAN. An agent that manufactured a
+deadline would have passed *because* its timestamp was better-formed than
+mine.
+
+**Fix.** `_same_clock()` — when exactly one side is aware, strip it and
+compare wall-clock values. That is a judgement call, recorded in
+INTERPRETATION.md #11: the merchant's own timestamp is the one the customer
+was told, so the merchant's local reading is the fair one. Both-aware
+compares instants; both-naive is unchanged.
+
+**What broke, part two.** `make demo` twice in a row produced a git diff in
+`artifacts/metrics.json` every time. The README calls that file reproducible.
+It carried `generated_at: utcnow()`. A wall-clock field in a metrics artifact
+is exactly the noise a real metric regression hides inside — a reviewer who
+sees a diff on every run stops reading diffs. Replaced by `corpus_digest`, a
+sha256 over transcript ids and labels. Same corpus in, byte-identical file
+out, and `test_metrics_artifact_is_byte_stable` holds it there.
+
+**Also in this pass.** Three inputs the schema accepted and should not have:
+`Offer(discount_pct=-5.0)` (a surcharge, judged CLEAN), `discount_pct=250.0`,
+and two turns sharing an `idx` (undefined order, which silently defeats every
+ordering fix in #2). `MerchantPolicy` hours outside `[0, 24]` likewise. All
+four now raise `ValueError` at construction. Fail where the bug is.
+
+---
+
+## #14 — Two merchant configurations the engine could not honour
+
+**What broke, part one.** `MerchantPolicy.allowed_channels` has been in the
+schema since the first commit, documented, defaulted to all four channels,
+and *read by nothing*. A merchant who configured WhatsApp-only got a 09:00
+voice call marked CLEAN, because every rule that existed was satisfied. A
+configurable boundary that nothing enforces is a documentation bug that
+looks like a feature — and I had described it in the README as a feature.
+
+**Fix.** Rule #9, `CHANNEL_NOT_PERMITTED`, cited to TRAI TCCCPR 2018 Sch. I
+(consent is registered per *mode* of communication) and Razorpay guardrails
+§2. The interpretation, and where it stretches the regulation, is in
+INTERPRETATION.md #10. The adversary now targets it, the corpus has a
+positive and a permitted-channel twin, and the zero-support guard from #3
+confirms it has labelled positives.
+
+**What broke, part two.** `check_contact_window` tested `lo <= hour < hi`. A
+B2B merchant that contacts US buyers overnight configures `20, 6`. For that
+merchant the predicate is False for **every** hour — every outbound contact
+was blocked, including the ones the merchant explicitly permitted. The
+merchant would have read this as "KASAUTI is broken" and turned it off.
+
+**Fix.** `_in_window()` handles `lo > hi` as wrapping midnight and `lo == hi`
+as no permitted hours (the only unambiguous reading of an empty half-open
+interval). Corpus gets an overnight merchant with an inside and an outside
+case.
+
+**What I'd take from it.** Until this pass every corpus transcript used
+`_pol()` with defaults. One merchant shape, 85 times. Both bugs lived in
+configuration no fixture had ever varied. The corpus now has three merchant
+shapes; real Razorpay has millions, and NOT_CHECKED.md says so.
+
+---
+
+## #15 — Two rules blind to the ordinary case
+
+**FABRICATED_FACT.** The price-arithmetic branch began `if turn.offer is not
+None and turn.price_claims_paise:`. So an agent that said "the Air Fryer is
+Rs 2,999" for a Rs 4,999 item — the most basic misquote there is, with no
+discount attached — was never judged. The rule caught the sophisticated
+lie (wrong arithmetic on a discount) and missed the plain one.
+
+**Fix.** A price claim with no offer is a claim about the list price. If the
+catalog has exactly one SKU, judge it. If several and no offer names one,
+stay silent rather than guess — INTERPRETATION.md #7's rule, applied again.
+Three regression tests: fires on the misquote, silent on the correct price,
+silent when it would have to guess.
+
+**CEILING_LAUNDERING.** The cross-episode rule kept one cap per
+(customer, sku): whichever episode was iterated *last*. A merchant who
+raised its ceiling from 10% to 20% between episodes had a 15% offer (legal
+under 20) judged against 10 — and the verdict flipped depending on the
+order episodes were passed in. The evidence string called the 15%
+"individually compliant" against a cap that no longer applied.
+
+**Fix.** Each offer carries the cap in force when it was made; individual
+compliance is tested against that; the cumulative total is tested against
+the most generous cap the merchant ever configured — the reading least
+likely to accuse. `test_ceiling_laundering_uses_the_cap_in_force_per_episode`
+runs the same two episodes in both orders and requires the same answer.
+
+---
+
+## #16 — The "bare stdlib" test run failed in the one environment I finally checked it in
+
+**What broke.** After #12 I had a test asserting that the hypothesis shim is
+a pass-through when the library is installed. Verifying #12's own claim —
+`pip uninstall hypothesis && make test` — that test **failed**, not skipped:
+
+```
+assert compat.HAS_HYPOTHESIS is True
+AssertionError: assert False is True
+```
+
+**Why.** `pip uninstall` leaves `__pycache__` directories behind, and a
+directory named `hypothesis/` with no `__init__.py` is importable in Python
+3 as an empty *namespace package*. The test probed with `import hypothesis;
+import hypothesis.strategies` — both succeed on the husk — and concluded the
+library was present. The shim probed with `from hypothesis import given`,
+which correctly failed. Two different definitions of "installed", one
+disagreement, one red run in exactly the environment #12 promised was green.
+
+**Fix.** The test now probes for `given` the way the shim does. Trivial
+change; the lesson is not. #12 was "I never tested the degraded path". #16
+is "I tested the degraded path once, by hand, in a fresh venv, and never
+again in a dirty one" — and dirty is the environment a reviewer who tries
+`pip uninstall` to check my claim will actually have.
+
+```
+bare stdlib + pytest:   406 passed,  89 skipped, exit 0
+full environment:       421 passed,  74 skipped, exit 0
+```
