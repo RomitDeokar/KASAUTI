@@ -15,7 +15,9 @@ from collections import Counter
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from corpus.builder import build_corpus  # noqa: E402
+from corpus.history import HISTORIES  # noqa: E402
 from kasauti.adversary import mutate_offline  # noqa: E402
+from kasauti.crossepisode import ALL_CROSS_CHECKERS, judge_history  # noqa: E402
 from kasauti.engine import assert_no_llm, judge, score_corpus, verdict_hash  # noqa: E402
 
 ART = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "artifacts")
@@ -100,6 +102,30 @@ def main() -> int:
         rc = f"{r['recall']:.3f}" if r["recall"] is not None else "  -  "
         print(f"  {rid:22s} {r['tp']:4d} {r['fp']:4d} {r['fn']:4d} {p:>7s} {rc:>7s}")
 
+    # -----------------------------------------------------------------------
+    # ZERO-SUPPORT GUARD  (FAILURES.md #7)
+    # -----------------------------------------------------------------------
+    # INJECTED_INSTRUCTION once shipped with tp=fp=fn=0 -- a rule advertised in
+    # the README, demoed in failure_lab.py, and never actually scored, because
+    # no corpus transcript exercised it. A dash in a metrics table is not a
+    # measurement, and it looked identical to a real result at a glance.
+    #
+    # An unmeasured rule is now a BUILD FAILURE rather than a formatting
+    # artifact. This is the same defect class as FAILURES.md #6 (a component
+    # that appeared to work because another component was doing the work), so
+    # it gets a machine check rather than a promise to be careful.
+    unsupported = [
+        rid for rid, r in metrics["per_rule"].items()
+        if (r["tp"] + r["fn"]) == 0
+    ]
+    if unsupported:
+        print(f"\n[FAIL] rules with zero corpus support: {unsupported}")
+        print("       A rule with no labelled positives is untested, not "
+              "perfect. Add corpus coverage or delete the rule.")
+        return 1
+    print(f"\n[ok] zero-support guard: all {len(metrics['per_rule'])} rules "
+          f"have labelled positives")
+
     # ---- the exhibit ----
     exhibit = next(r for r in rows if r["transcript_id"] == "MEDIANAMA_DEMO")
     print("\n" + "=" * 72)
@@ -112,6 +138,66 @@ def main() -> int:
         print(f"\n  [{f['rule']}] turn {f['turn']}")
         print(f"     {f['citation']}")
         print(f"     {f['evidence']}")
+
+    # -----------------------------------------------------------------------
+    # CROSS-EPISODE LAYER
+    # -----------------------------------------------------------------------
+    # This block is here because it was NOT here (FAILURES.md #7). run_suite.py
+    # imported judge_history and HISTORIES and used neither -- while
+    # corpus/history.py stated in its module docstring that "scripts/
+    # run_suite.py asserts exactly that property ... so the claim is
+    # machine-checked rather than a comment."
+    #
+    # It was a comment. In a project whose entire argument is that claims must
+    # be executable, a docstring asserting a check that does not run is the
+    # worst possible bug to ship. The imports were the only evidence it was
+    # ever intended.
+    print("\n" + "-" * 72)
+    print("CROSS-EPISODE LAYER (the shapes one transcript cannot show)")
+    print("-" * 72)
+
+    cross_exact = 0
+    for name, (episodes, expected) in HISTORIES.items():
+        # THE LOAD-BEARING ASSERTION: every episode must be individually
+        # clean. If any single episode were dirty, the per-episode engine
+        # would already have caught it and the cross-episode rule would be
+        # decoration claiming an insight it had not earned.
+        for ep in episodes:
+            ev = judge(ep.transcript)
+            assert ev.passed and not ev.rules_fired, (
+                f"{name}: episode {ep.transcript.transcript_id} is dirty "
+                f"per-episode ({ev.rules_fired}) -- the cross-episode finding "
+                f"would be redundant, not novel"
+            )
+
+        cv = judge_history(episodes)
+        got = tuple(cv.rules_fired)
+        ok = got == tuple(sorted(expected))
+        cross_exact += ok
+        mark = "ok  " if ok else "FAIL"
+        print(f"  [{mark}] {name:24s} {len(episodes)} clean episodes "
+              f"-> {list(got) or 'CLEAN'}")
+        if not ok:
+            print(f"         expected {sorted(expected)}")
+
+    print(f"\n  every episode above passes the per-episode engine "
+          f"individually (asserted, not claimed)")
+    print(f"  cross-episode exact match: {cross_exact}/{len(HISTORIES)}")
+    print(f"  cross-episode rules: {len(ALL_CROSS_CHECKERS)} checkers, "
+          f"aggregate scope")
+
+    if cross_exact != len(HISTORIES):
+        print("\n[FAIL] cross-episode layer disagrees with its labels")
+        return 1
+
+    metrics["cross_episode"] = {
+        "n_histories": len(HISTORIES),
+        "exact_match": cross_exact,
+        "every_episode_individually_clean": True,
+        "n_checkers": len(ALL_CROSS_CHECKERS),
+    }
+    with open(os.path.join(ART, "metrics.json"), "w") as fh:
+        json.dump(metrics, fh, indent=2)
 
     mismatches = [r for r in rows if not r["exact"]]
     if mismatches:

@@ -161,3 +161,50 @@ def test_exceeding_the_highest_refused_offer_is_escalation():
     t = mk([A(0, 10, 10.0), C(1, 10, refusal=True), A(2, 11, 5.0),
             C(3, 11, refusal=True), A(4, 12, 12.0)], cap=100.0)
     assert len(check_escalating_pressure(t)) == 1
+
+
+# ---------------------------------------------------------------------------
+# FAILURES.md #8 - evidence described an offer that never happened
+# ---------------------------------------------------------------------------
+# Found while building the gateway equivalence proof, in 8 corpus transcripts.
+# `best_before_refusal` is initialised to 0.0, so a FIRST offer made after a
+# refusal was reported as "raised discount from 0% to 10%" -- describing a
+# prior 0% offer that did not exist.
+#
+# The verdict was right (introducing an offer after a no is pressure under
+# guardrails blog s5). The explanation was false, and the explanation is the
+# part a merchant reads and acts on. A control layer that gives a wrong reason
+# gets switched off.
+def test_first_offer_after_refusal_does_not_claim_a_phantom_prior_offer():
+    t = mk([A(0, 10, None), C(1, 10, refusal=True), A(2, 11, 10.0)], cap=100.0)
+    findings = check_escalating_pressure(t)
+    assert len(findings) == 1, "introducing an offer after a no is still pressure"
+    ev = findings[0].evidence
+    assert "from 0% to" not in ev, f"phantom prior offer in evidence: {ev}"
+    assert "no offer before the refusal" in ev
+    assert "10%" in ev
+
+
+def test_genuine_escalation_still_reports_both_numbers():
+    """The fix must not flatten the real case into the generic wording."""
+    t = mk([A(0, 10, 10.0), C(1, 10, refusal=True), A(2, 11, 20.0)], cap=100.0)
+    findings = check_escalating_pressure(t)
+    assert len(findings) == 1
+    ev = findings[0].evidence
+    assert "from 10% to 20%" in ev
+    assert "no offer before the refusal" not in ev
+
+
+def test_no_corpus_transcript_reports_a_phantom_prior_offer():
+    """Sweep the whole corpus: the defect class must be extinct, not just
+    fixed in the one fixture I happened to write."""
+    from corpus.builder import build_corpus
+    from kasauti.adversary import mutate_offline
+    from kasauti.engine import judge
+
+    for t in build_corpus() + mutate_offline(60):
+        for f in judge(t).findings:
+            assert "from 0% to" not in f.evidence, (
+                f"{t.transcript_id}: {f.rule_id} claims a 0% prior offer -- "
+                f"{f.evidence}"
+            )

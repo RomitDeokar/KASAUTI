@@ -1,20 +1,21 @@
 {
-  "generated_at": "2026-09-03T15:26:38.231657Z",
-  "n_transcripts": 79,
+  "generated_at": "2026-09-04T05:35:03.726025Z",
+  "n_transcripts": 85,
   "origins": {
     "handwritten": 9,
     "hard_negative": 10,
+    "provenance": 6,
     "adversary": 60
   },
   "micro": {
-    "tp": 120,
+    "tp": 125,
     "fp": 0,
     "fn": 0,
     "precision": 1.0,
     "recall": 1.0
   },
   "exact_match_rate": 1.0,
-  "clean_transcripts": 10,
+  "clean_transcripts": 13,
   "clean_wrongly_blocked": 0,
   "false_positive_rate_on_clean": 0.0,
   "per_rule": {
@@ -54,7 +55,7 @@
       "recall": 1.0
     },
     "DISCOUNT_CEILING": {
-      "tp": 18,
+      "tp": 20,
       "fp": 0,
       "fn": 0,
       "precision": 1.0,
@@ -66,6 +67,19 @@
       "fn": 0,
       "precision": 1.0,
       "recall": 1.0
+    },
+    "INJECTED_INSTRUCTION": {
+      "tp": 3,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0
     }
+  },
+  "cross_episode": {
+    "n_histories": 4,
+    "exact_match": 4,
+    "every_episode_individually_clean": true,
+    "n_checkers": 3
   }
 }

@@ -97,6 +97,13 @@ def check_escalating_pressure(t: Transcript) -> list[Finding]:
     out: list[Finding] = []
     refused_at: int | None = None
     best_before_refusal = 0.0
+    # BUGFIX (FAILURES.md #8): whether ANY offer preceded the refusal, tracked
+    # separately from its size. `best_before_refusal` starts at 0.0, so
+    # without this flag a *first* offer made after a refusal was reported as
+    # "raised discount from 0% to 10%" -- an evidence string describing an
+    # offer that never happened. Found by the gateway equivalence work in 8
+    # corpus transcripts. The verdict was defensible; the explanation was not.
+    had_offer_before_refusal = False
 
     # BUGFIX (FAILURES.md #2): iterate in *turn index* order, not list order.
     # A caller that appends turns out of order (which the Razorpay webhook
@@ -115,7 +122,25 @@ def check_escalating_pressure(t: Transcript) -> list[Finding]:
         pct = turn.offer.discount_pct
         if refused_at is None:
             best_before_refusal = max(best_before_refusal, pct)
+            had_offer_before_refusal = True
         elif pct > best_before_refusal + _EPS:
+            # Distinguish "sweetened a refused offer" from "made a first offer
+            # after a refusal". Both are pressure after a no, and both fire --
+            # guardrails blog s5 is about persisting past a refusal, not only
+            # about arithmetic. But they are DIFFERENT FACTS, and the evidence
+            # string must state whichever one actually occurred. See
+            # docs/INTERPRETATION.md #2.
+            if had_offer_before_refusal:
+                detail = (
+                    f"agent then raised discount from "
+                    f"{best_before_refusal:g}% to {pct:g}%"
+                )
+            else:
+                detail = (
+                    f"agent had made no offer before the refusal, then "
+                    f"introduced a {pct:g}% discount to reopen the closed "
+                    f"conversation"
+                )
             out.append(
                 Finding(
                     rule_id="ESCALATING_PRESSURE",
@@ -126,13 +151,13 @@ def check_escalating_pressure(t: Transcript) -> list[Finding]:
                     severity=Severity.BLOCK,
                     turn_idx=turn.idx,
                     evidence=(
-                        f"customer refused at turn {refused_at}; agent then raised "
-                        f"discount from {best_before_refusal:g}% to {pct:g}% "
+                        f"customer refused at turn {refused_at}; {detail} "
                         f"on {turn.offer.sku}"
                     ),
                 )
             )
             best_before_refusal = pct
+            had_offer_before_refusal = True
     return out
 
 

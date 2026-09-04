@@ -86,3 +86,23 @@ def test_verdicts_are_stable_across_runs():
     first = [verdict_hash(judge(t)) for t in corpus]
     second = [verdict_hash(judge(t)) for t in corpus]
     assert first == second
+
+
+# ---------------------------------------------------------------------------
+# The gateway must be as pure as the rules it enforces
+# ---------------------------------------------------------------------------
+def test_gateway_decision_path_is_pure():
+    """The inline gate is held to the checkers' standard, not a weaker one.
+
+    This matters more for the gate than for the offline engine. An
+    enforcement point that consulted a clock or an LLM would make *production
+    money decisions* irreproducible: the same action would be allowed at
+    11:00 and denied at 11:01, and no audit could ever reconstruct why.
+
+    `kasauti/gateway.py` imports only `dataclasses`, `enum` and its own
+    package, so the same import allowlist that governs the checkers governs
+    it. Adding a network call to that module makes this test fail.
+    """
+    from kasauti.gateway import evaluate_action, run_gate
+
+    assert_no_llm((evaluate_action, run_gate))
