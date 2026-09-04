@@ -15,7 +15,6 @@ import hashlib
 import json
 from collections import Counter
 from dataclasses import asdict, dataclass
-from datetime import datetime
 
 from .rules.checkers import ALL_CHECKERS, RULE_IDS
 from .schema import Finding, Severity, Transcript

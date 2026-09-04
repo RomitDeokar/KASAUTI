@@ -835,3 +835,89 @@ again in a dirty one" — and dirty is the environment a reviewer who tries
 bare stdlib + pytest:   406 passed,  89 skipped, exit 0
 full environment:       421 passed,  74 skipped, exit 0
 ```
+
+---
+
+## #17 — A property test built an input my own schema forbids
+
+**What broke.** An external reviewer ran `make test` on a clean checkout and
+got a red run I had never seen:
+
+```
+FAILED tests/test_properties.py::test_ceiling_tolerance_band_is_negligible
+  File "kasauti/schema.py", line 136, in Offer.__post_init__
+ValueError: discount_pct must be within [0, 100], got 100.01
+Falsifying example: cap=100.0
+```
+
+**Why.** The property drew `cap` from `[0, 100]` and then built an offer at
+`cap + 0.01` to prove a hair-over-the-ceiling breach still fires. At
+`cap == 100.0` that is a 100.01% discount, which `Offer.__post_init__` — added
+in #13 to fail where the bug is — correctly rejects. The engine was right.
+The schema was right. The *test* generated an impossible world and blamed
+the code for refusing to live in it.
+
+Hypothesis had not found this on my machine across dozens of runs because
+`floats(0, 100)` lands exactly on the endpoint rarely, and I never pinned a
+seed that did. Someone else's random draw found it first. That is the whole
+argument for property tests, working exactly as intended — against me.
+
+**Fix.** Upper bound `99.99`, and `min(cap + 0.01, 100.0)` as a belt-and-
+braces clamp against float noise near the top. The test's docstring now says
+why.
+
+**Lesson.** A schema that validates aggressively (#13) will eventually reject
+input from your own test generators. That is not a reason to loosen the
+schema. It is a reason to constrain the generator, and to be glad the two
+disagreed loudly instead of the test silently passing an offer the engine
+would never see in production.
+
+---
+
+## #18 — The identifier validator I wrote after #9 had the same hole, one field over
+
+**What broke.** Same reviewer, stress-testing `consortium.join_key` because
+it is the function whose entire job is not accusing the wrong person:
+
+```python
+join_key("@a.com", "salt")     # returned a hash
+join_key("a@.com", "salt")     # returned a hash
+join_key("a@b@c.com", "salt")  # returned a hash
+```
+
+Three strings that are not anyone's email address, each hashed into a
+confident, valid-looking 16-hex join key.
+
+**Why.** After #9 (blank identifiers merging six customers into one) I
+added `_reject_if_degenerate`. Its email branch was:
+
+```python
+if "@" in norm and "." in norm.split("@")[-1] and len(norm) >= 6:
+    return
+```
+
+It checks that there is a dot *somewhere after the last @*. It never checks
+that there is anything *before* the @, or anything before the dot, or that
+there is only one @. Every CRM export I have seen has a few `@domain.com`
+rows where the local part was lost to a bad merge. Under the old check all
+of them join onto one phantom customer — which is #9 again, exactly, in the
+branch I wrote *to fix #9*.
+
+**Fix.** Partition on the first `@`; require a non-empty local part, no
+second `@`, and a domain with at least two labels all non-empty (so
+`a@.com`, `ab@com` and `ab@c.com.` are all refused). Six new parametrised
+regressions in `test_degenerate_identifiers_are_refused`, plus one more
+*valid* address in `test_valid_identifiers_still_accepted` so the fix cannot
+degenerate into refusing everything.
+
+**Lesson.** #9's write-up said "validation had to move before the hash." It
+did — and the validation itself was under-tested in the direction that
+mattered. The regression suite for #9 had 20 bad inputs and zero of them
+were email-shaped, because the bug I was fixing was phone-shaped. Fixing a
+bug class in one field and declaring the class closed is how it comes back
+in the next field.
+
+```
+full environment:       490 passed,  80 skipped, exit 0
+bare stdlib + pytest:   474 passed,  96 skipped, exit 0
+```

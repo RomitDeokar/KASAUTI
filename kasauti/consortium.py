@@ -176,8 +176,31 @@ def _reject_if_degenerate(norm: str, original: str) -> None:
                 f"seen."
             )
         return
-    if "@" in norm and "." in norm.split("@")[-1] and len(norm) >= 6:
-        return
+    if "@" in norm:
+        # BUGFIX (FAILURES.md #18): the previous test was `"." in
+        # norm.split("@")[-1]`, which accepted "@a.com" (nobody before the
+        # @), "a@.com" (no host before the dot) and "a@b@c.com" (two @s) and
+        # hashed each into a confident-looking join key. Same bug class as
+        # #9 -- garbage laundered by a hash -- in a new spot. An email-shaped
+        # identifier needs exactly one @, a non-empty local part, and a
+        # domain with a non-empty label on both sides of a dot.
+        local, _, domain = norm.partition("@")
+        labels = domain.split(".")
+        if (
+            local
+            and "@" not in domain
+            and len(labels) >= 2
+            and all(labels)
+            and len(norm) >= 6
+        ):
+            return
+        raise DegenerateIdentifier(
+            f"refusing to build a join key from {original!r}: normalised to "
+            f"{norm!r}, which is email-shaped but not an email (empty local "
+            f"part, empty domain label, or more than one '@'). Hashing it "
+            f"would merge every record with the same defect into one phantom "
+            f"customer (FAILURES.md #9, #18)."
+        )
     raise DegenerateIdentifier(
         f"refusing to build a join key from {original!r}: normalised to "
         f"{norm!r}, which is neither an Indian mobile nor an email. The "

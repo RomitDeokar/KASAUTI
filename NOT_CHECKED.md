@@ -17,7 +17,7 @@ and stopped.
 
 ## 1. The headline metrics are on a corpus I built
 
-`artifacts/metrics.json` reports precision 1.0 / recall 1.0 on 89
+`artifacts/metrics.json` reports precision 1.0 / recall 1.0 on 98
 transcripts. **That number describes agreement between my checkers and my own
 labels.** It is not a measurement of real-world agent compliance and must not
 be read as one.
@@ -25,9 +25,9 @@ be read as one.
 What it does establish, which is narrower and still worth something:
 
 - The checkers implement the interpretations written in
-  [docs/INTERPRETATION.md](docs/INTERPRETATION.md), consistently, across 89
+  [docs/INTERPRETATION.md](docs/INTERPRETATION.md), consistently, across 98
   cases including 10 hard negatives designed to break them.
-- The rules are stable under adversarial mutation (60 of the 89 are
+- The rules are stable under adversarial mutation (60 of the 98 are
   adversary-generated, not hand-written).
 - Two baselines — a lexical detector and an LLM judge — score materially
   worse on the identical corpus with the identical labels
@@ -44,7 +44,7 @@ and an independent LLM adversary reduce it. They do not eliminate it.
 
 ## 2. Precision 1.0 is a warning sign, not a victory
 
-A perfect score on an 89-case corpus mostly measures that the corpus is too
+A perfect score on a 98-case corpus mostly measures that the corpus is too
 small and too close to the rules it tests. I am reporting it because hiding
 it would be worse, but the honest reading is: *the corpus has not yet found a
 case my rules get wrong.* That is a statement about corpus coverage, not
@@ -56,7 +56,7 @@ break something.
 ## 3. The equivalence proof holds in SHADOW mode only
 
 `scripts/prove_equivalence.py` proves that offline certification and inline
-enforcement produce identical verdicts across all 89 transcripts — in SHADOW
+enforcement produce identical verdicts across all 98 transcripts — in SHADOW
 mode, where every turn is evaluated and recorded but nothing is blocked.
 
 In ENFORCE mode the gate changes history. If it denies turn 3, turn 3 never
@@ -168,7 +168,7 @@ Named plainly, because "we didn't get to it" is more useful than silence:
   turns, and never benchmarked.
 - **Concurrency.** Everything is single-threaded and in-memory. There is no
   database, no locking, no idempotency handling for replayed events.
-- **The LLM adversary's coverage.** It generated 60 cases against 9 rules.
+- **The LLM adversary's coverage.** It generated 60 cases against 9 of the 11 rules (the mandate and hardship rules are covered by handwritten twins only -- see §9).
   Whether that meaningfully covers the attack space is unmeasured — I have no
   denominator for "all possible dark patterns."
 - **Multilingual.** Every transcript is English. Indian recovery agents
@@ -187,6 +187,34 @@ Named plainly, because "we didn't get to it" is more useful than silence:
   values, which is only correct if the aware timestamp was *meant* in the
   merchant's local zone. A UTC deadline for a customer in IST is off by 5h30
   and the rule will not know.
+
+## 9. The two newest rules are the least tested
+
+`MANDATE_RETRY_BREACH` and `HARDSHIP_SIGNAL_IGNORED` were the last rules
+added, folded in from two idea-bank candidates (RetryRight and MEHNAT) in
+their narrowest form. Read their 1.0 with *more* suspicion than the rest:
+
+- **No adversary coverage.** The offline mutator does not target them. Their
+  positives are 4 and 2 handwritten exhibits; their negatives are 4
+  handwritten twins. That is enough to prove the predicate is reachable in
+  both directions and nothing more.
+- **The retry limits are the merchant's, not the regulator's.** RBI fixes the
+  24h pre-debit notice and the authorised cap. The *retry count* and *retry
+  window* are operating limits set by sponsor banks / NPCI product rules and
+  vary by rail. `MerchantPolicy` carries them so the rule enforces the
+  merchant's own configuration — it does not claim "3 retries in 3 days" is
+  law, and INTERPRETATION.md #12 says so.
+- **Hardship is a flag, not a finding.** `is_hardship_signal` is set by the
+  harness. The rule has no opinion on whether "money is tight" *is* hardship
+  — that call is language work and is deliberately outside the verdict path.
+  If the harness under-flags, the rule under-fires; if it over-flags, an
+  agent making an ordinary offer gets blocked. Neither error is visible in
+  the metrics because the corpus was labelled by the same hand that set the
+  flags.
+- **"Immediate next turn" is a narrow reading.** An agent that says "so
+  sorry" and *then* pressures two turns later is not caught here. That is
+  the cross-episode layer's job in principle; in practice no fixture tests
+  it.
 
 ---
 
