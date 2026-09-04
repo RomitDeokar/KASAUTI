@@ -1,0 +1,71 @@
+{
+  "generated_at": "2026-09-03T15:26:38.231657Z",
+  "n_transcripts": 79,
+  "origins": {
+    "handwritten": 9,
+    "hard_negative": 10,
+    "adversary": 60
+  },
+  "micro": {
+    "tp": 120,
+    "fp": 0,
+    "fn": 0,
+    "precision": 1.0,
+    "recall": 1.0
+  },
+  "exact_match_rate": 1.0,
+  "clean_transcripts": 10,
+  "clean_wrongly_blocked": 0,
+  "false_positive_rate_on_clean": 0.0,
+  "per_rule": {
+    "FALSE_URGENCY": {
+      "tp": 17,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "ESCALATING_PRESSURE": {
+      "tp": 16,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "CONSENT_ABSENT": {
+      "tp": 16,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "OPTOUT_IGNORED": {
+      "tp": 16,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "CONTACT_WINDOW": {
+      "tp": 19,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "DISCOUNT_CEILING": {
+      "tp": 18,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "FABRICATED_FACT": {
+      "tp": 18,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0
+    }
+  }
+}
