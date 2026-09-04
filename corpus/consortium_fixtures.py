@@ -153,10 +153,70 @@ def clean_single_merchant_owns_it() -> tuple[ConsortiumLedger, list[str], str]:
     )
 
 
+def two_optouts_selfbreach_is_not_a_network_finding(
+) -> tuple[ConsortiumLedger, list[str], str]:
+    """The de-duplication case that N5 could not reach. FAILURES.md #10.
+
+    N5 puts ONE merchant in the ledger, which `min_merchants` makes silent
+    for free -- so it never exercised the dedup guard it was written to
+    defend. This fixture puts TWO merchants in, and BOTH hold opt-outs.
+
+    MERCH_B contacts after its OWN opt-out. crossepisode.py owns that at
+    BLOCK. Before the fix, the guard only silenced the holder of the
+    EARLIEST opt-out, so this was reported as a cross-merchant breach
+    blaming MERCH_A -- double-reported AND attributed to the wrong merchant,
+    with an evidence string claiming "both merchants are individually
+    compliant" about a merchant that was not.
+    """
+    cfg = ConsortiumConfig()
+    led = ConsortiumLedger(config=cfg)
+    led.add(MerchantReport.build(
+        PHONE_FORMATS[0], cfg.salt, "MERCH_A",
+        contacts=((_c(0), "whatsapp"),), opted_out_at=_c(1),
+    ))
+    led.add(MerchantReport.build(
+        PHONE_FORMATS[1], cfg.salt, "MERCH_B",
+        contacts=((_c(5), "sms"),), opted_out_at=_c(2),
+    ))
+    return led, [], (
+        "Two merchants, BOTH holding opt-outs. MERCH_B breaches its own "
+        "suppression -- the single-merchant layer owns it at BLOCK. The "
+        "network layer must stay silent instead of blaming MERCH_A."
+    )
+
+
+def repeat_customer_is_not_laundering(
+) -> tuple[ConsortiumLedger, list[str], str]:
+    """A six-year gap is a loyal customer, not stacked discounts.
+
+    FAILURES.md #11: the cumulative sum had no time window, so two 10%
+    offers six years apart summed to 20% and tripped a 10% ceiling. Every
+    other fixture in this file clusters its timestamps within days, which is
+    exactly why the missing window was invisible.
+    """
+    cfg = ConsortiumConfig()
+    led = ConsortiumLedger(config=cfg)
+    led.add(MerchantReport.build(
+        PHONE_FORMATS[0], cfg.salt, "MERCH_A",
+        offers=((_c(0), "SKU_AIRFRYER", 10.0),), max_discount_pct=10.0,
+    ))
+    led.add(MerchantReport.build(
+        PHONE_FORMATS[1], cfg.salt, "MERCH_B",
+        offers=((_c(365 * 6), "SKU_AIRFRYER", 10.0),), max_discount_pct=10.0,
+    ))
+    return led, [], (
+        "Same SKU at two merchants, SIX YEARS apart, each inside its own "
+        "10% ceiling. Cumulatively 20% -- and completely innocent. The "
+        "false positive a real merchant would have complained about."
+    )
+
+
 ALL_FIXTURES = {
     "N1_SUPPRESSION_NETWORK": suppression_network,
     "N2_FLOODING_NETWORK": flooding_network,
     "N3_LAUNDERING_NETWORK": laundering_network,
     "N4_CLEAN_MULTI_MERCHANT": clean_multi_merchant,
     "N5_SINGLE_MERCHANT_DEDUP": clean_single_merchant_owns_it,
+    "N6_TWO_OPTOUTS_SELF_BREACH": two_optouts_selfbreach_is_not_a_network_finding,
+    "N7_REPEAT_CUSTOMER_NOT_LAUNDERING": repeat_customer_is_not_laundering,
 }

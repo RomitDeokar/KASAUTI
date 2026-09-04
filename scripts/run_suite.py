@@ -180,8 +180,8 @@ def main() -> int:
         if not ok:
             print(f"         expected {sorted(expected)}")
 
-    print(f"\n  every episode above passes the per-episode engine "
-          f"individually (asserted, not claimed)")
+    print("\n  every episode above passes the per-episode engine "
+          "individually (asserted, not claimed)")
     print(f"  cross-episode exact match: {cross_exact}/{len(HISTORIES)}")
     print(f"  cross-episode rules: {len(ALL_CROSS_CHECKERS)} checkers, "
           f"aggregate scope")
@@ -209,7 +209,7 @@ def main() -> int:
         if len(mismatches) > 15:
             print(f"  ... and {len(mismatches)-15} more (see artifacts/verdicts.json)")
 
-    print(f"\nwrote artifacts/verdicts.json and artifacts/metrics.json")
+    print("\nwrote artifacts/verdicts.json and artifacts/metrics.json")
     by_origin = Counter(r["origin"] for r in rows if not r["exact"])
     print(f"mismatches by origin: {dict(by_origin) or 'none'}")
     return 0

@@ -10,9 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-import pytest
-from hypothesis import assume, given, settings
-from hypothesis import strategies as st
+from _hypothesis_compat import given, settings, st
 
 from kasauti.engine import judge, verdict_hash
 from kasauti.rules.checkers import (

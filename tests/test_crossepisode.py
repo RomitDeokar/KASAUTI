@@ -13,7 +13,6 @@ A test that can only confirm my design is not evidence. This one can refute it.
 """
 from __future__ import annotations
 
-from datetime import timedelta
 
 import pytest
 

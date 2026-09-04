@@ -301,7 +301,6 @@ def check_suppression_breach_network(
     there the answer is not ambiguous.
     """
     out: list[Finding] = []
-    cfg = ledger.config
 
     for jk, reports in sorted(ledger.by_customer().items()):
         optouts = [(r.opted_out_at, r.merchant_id) for r in reports
@@ -314,10 +313,24 @@ def check_suppression_breach_network(
             for at, channel in sorted(r.contacts):
                 if at <= earliest_at:
                     continue
-                if r.merchant_id == earliest_merchant:
-                    # Same merchant contacted after its own opt-out. That is
-                    # crossepisode.py's SUPPRESSION_BREACH, at BLOCK. Do not
-                    # double-report it here at a weaker severity.
+                # DE-DUPLICATION AGAINST THE SINGLE-MERCHANT LAYER.
+                #
+                # If THIS merchant holds its own opt-out and contacted after
+                # it, crossepisode.py::check_suppression_breach already owns
+                # the event at BLOCK. Reporting it again here at WARN shows
+                # an operator one event twice at two severities.
+                #
+                # The subtle part, and the bug (FAILURES.md #10): the test
+                # must be "does r hold an opt-out at or before this contact",
+                # NOT "is r the merchant holding the EARLIEST opt-out". Those
+                # differ whenever two merchants both have opt-outs, which is
+                # exactly the shape of a genuinely harassed customer. The old
+                # `r.merchant_id == earliest_merchant` check silenced only
+                # the earliest opt-out holder, so merchant B breaching its
+                # OWN opt-out was re-reported as a cross-merchant breach
+                # against merchant A -- blaming the wrong merchant for an
+                # event the BLOCK layer had already caught.
+                if r.opted_out_at is not None and r.opted_out_at <= at:
                     continue
                 out.append(Finding(
                     rule_id="SUPPRESSION_BREACH_NETWORK",
@@ -399,8 +412,13 @@ def check_ceiling_laundering_network(
     own ceiling -- relevant for marketplace/reseller topologies where one
     customer farms the same product across sellers.
 
-    Threshold is the MAXIMUM ceiling any participating merchant configured,
-    not the sum and not the minimum. Reasoning: the sum is meaningless (three
+    Scoped to a rolling `window_days` window. Summing over all time was the
+    original implementation and it was wrong: two 10% offers six years apart
+    are a repeat customer, not laundering. Stacking is a claim about offers
+    being live together. See FAILURES.md #11.
+
+    Threshold is the MAXIMUM ceiling any participating merchant configured
+    *on that SKU*, not the sum and not the minimum. Reasoning: the sum is meaningless (three
     merchants each allowing 10% does not authorise 30% to one customer), and
     the minimum would fire on a merchant who never agreed to the strictest
     participant's policy. The max is the most permissive defensible reading,
@@ -409,20 +427,43 @@ def check_ceiling_laundering_network(
     out: list[Finding] = []
     cfg = ledger.config
 
+    window = timedelta(days=cfg.window_days)
+
     for jk, reports in sorted(ledger.by_customer().items()):
         by_sku: dict[str, list[tuple[datetime, str, float]]] = defaultdict(list)
         ceiling_by_sku: dict[str, float] = {}
         for r in reports:
             for at, sku, pct in r.offers:
                 by_sku[sku].append((at, r.merchant_id, pct))
+                # This max() is deliberately INSIDE the offer loop. A
+                # merchant that never offered this SKU must not raise this
+                # SKU's threshold -- otherwise one participant with a
+                # permissive ceiling on unrelated inventory would silently
+                # authorise stacking everywhere. Pinned by
+                # test_bystander_merchant_ceiling_does_not_leak.
                 ceiling_by_sku[sku] = max(
                     ceiling_by_sku.get(sku, 0.0), r.max_discount_pct)
 
         for sku, rows in sorted(by_sku.items()):
-            merchants = sorted({m for _, m, _ in rows})
+            rows.sort(key=lambda x: (x[0], x[1]))
+            # UNBOUNDED-WINDOW BUG (FAILURES.md #11): the total used to be
+            # summed over ALL history, so two 10% offers six YEARS apart
+            # summed to 20% and tripped a 10% ceiling. That is not discount
+            # laundering, it is a repeat customer. Stacking is a claim about
+            # offers being live together, so it is scoped to the same rolling
+            # window the flooding rule already uses.
+            best: tuple[float, list[tuple[datetime, str, float]]] | None = None
+            for i, (at, _m, _p) in enumerate(rows):
+                recent = [e for e in rows[:i + 1] if at - e[0] <= window]
+                tot = sum(p for _, _, p in recent)
+                if best is None or tot > best[0]:
+                    best = (tot, recent)
+            if best is None:
+                continue
+            total, recent = best
+            merchants = sorted({m for _, m, _ in recent})
             if len(merchants) < cfg.min_merchants:
                 continue
-            total = sum(pct for _, _, pct in rows)
             ceiling = ceiling_by_sku[sku]
             # Strict >, and a small epsilon, because binary floats made an
             # earlier version of this fire at exactly the ceiling.
@@ -432,20 +473,22 @@ def check_ceiling_laundering_network(
             out.append(Finding(
                 rule_id="CEILING_LAUNDERING_NETWORK",
                 citation=(
-                    "OPERATOR POLICY: cumulative cross-merchant discount on "
-                    "one SKU exceeding the most permissive participating "
-                    "merchant's configured ceiling. Razorpay guardrails blog "
-                    "s2 states the ceiling is per-merchant; the cross-merchant "
-                    "reading is mine"
+                    f"OPERATOR POLICY: cumulative cross-merchant discount on "
+                    f"one SKU within {cfg.window_days}d exceeding the most "
+                    f"permissive participating merchant's configured ceiling. "
+                    f"Razorpay guardrails blog s2 states the ceiling is "
+                    f"per-merchant; the cross-merchant reading is mine, and "
+                    f"the window is a policy choice, not a statutory one"
                 ),
                 severity=Severity.WARN,
                 turn_idx=-1,
                 evidence=(
                     f"customer {jk} received {total:.1f}% cumulative discount "
-                    f"on {sku} across {len(merchants)} merchants "
-                    f"({', '.join(merchants)}); most permissive single-merchant "
-                    f"ceiling is {ceiling:.1f}% -- every individual offer is "
-                    f"within its own merchant's limit"
+                    f"on {sku} within {cfg.window_days}d across "
+                    f"{len(merchants)} merchants ({', '.join(merchants)}); "
+                    f"most permissive single-merchant ceiling is "
+                    f"{ceiling:.1f}% -- every individual offer is within its "
+                    f"own merchant's limit"
                 ),
             ))
     return out

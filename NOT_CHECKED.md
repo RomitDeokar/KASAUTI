@@ -104,6 +104,20 @@ Also not established:
 - **The thresholds are mine.** 5 contacts / 7 days / ≥2 merchants are
   operator policy defaults living in `ConsortiumConfig`, not legal
   quantities. TCCCPR does not enumerate a cross-merchant frequency cap.
+- **The laundering window is unvalidated.** `CEILING_LAUNDERING_NETWORK` now
+  scopes its cumulative sum to a rolling 7-day window, because summing over
+  all history reported a six-year-old repeat purchase as laundering
+  (FAILURES.md #11). But **7 days is a guess**. I have no data on how long a
+  stacked-discount campaign actually runs, so the window is the flooding
+  rule's number reused for consistency, not a measured quantity. Too short
+  and a patient abuser walks; too long and loyal customers get flagged. Both
+  the number and its direction of error are disclosed in the Finding's own
+  citation string, so the rule argues with a reviewer rather than hiding
+  behind one.
+- **What the window fix cost.** Scoping the sum means a genuinely coordinated
+  campaign spread over 8+ days is now invisible to this rule. That is a
+  deliberate trade in favour of the false-positive direction, and it is a
+  real loss of coverage, not a free improvement.
 
 ## 6. The salted hash is a real mitigation and a weak one
 

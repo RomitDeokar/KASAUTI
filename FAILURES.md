@@ -496,3 +496,209 @@ had implemented.
 
 The question I did not ask, and now ask by default: *what is this function
 deciding that I never told it to decide?*
+
+---
+
+## #10 — My de-duplication guard blamed the wrong merchant
+
+**What broke.** The consortium layer's whole promise is that it reports abuse
+*no single merchant can see*. The corollary is a duty not to re-report abuse a
+single merchant CAN see: `crossepisode.py` already catches "merchant contacted
+after its own opt-out" at `BLOCK`, and if the network layer also reported it
+at `WARN`, an operator would see one event twice at two severities and stop
+trusting the queue. I knew that, wrote the guard, and wrote a fixture for it
+(`N5_SINGLE_MERCHANT_DEDUP`). It passed.
+
+It passed for the wrong reason. The fixture had **one** merchant in the
+ledger. The bug needs **two**:
+
+```
+MERCH_A: opted out day 1, contacted day 0        (clean - contact precedes opt-out)
+MERCH_B: opted out day 2, contacted day 5        (breaches its OWN opt-out)
+
+expected: []  (crossepisode.py owns this at BLOCK)
+actual:   SUPPRESSION_BREACH_NETWORK
+          "opted out at MERCH_A ...; contacted by MERCH_B ...
+           both merchants are individually compliant"
+```
+
+Two things are wrong, and the second is worse than the first. The event is
+double-reported — but it is also **attributed to the wrong merchant**, and
+the evidence string asserts "both merchants are individually compliant" about
+a merchant that is not compliant at all. Read literally, the finding tells an
+operator that A's suppression was breached by B, when what actually happened
+is that B breached its own.
+
+**Why.** The guard was:
+
+```python
+if r.merchant_id == earliest_merchant:
+    continue
+```
+
+which reads as "skip the merchant that owns this opt-out" and actually means
+"skip the merchant that owns the *earliest* opt-out". Those are the same
+sentence whenever exactly one merchant has an opt-out on record, which was
+true in every fixture I wrote. They diverge the moment two merchants both
+have opt-outs — which is not an exotic case, it is precisely the shape of a
+customer who has been saying *stop* repeatedly, i.e. the customer this whole
+layer exists to protect.
+
+The fix keys on the actual question instead of a proxy for it:
+
+```python
+if r.opted_out_at is not None and r.opted_out_at <= at:
+    continue
+```
+
+The `<= at` matters and is the third test I wrote. Keying on merely "this
+merchant has an opt-out somewhere in its record" would let a merchant contact
+a suppressed customer and *then* record its own opt-out afterwards, laundering
+the finding away retroactively.
+
+**Tests.** `test_merchant_breaching_its_own_optout_is_not_a_network_finding`
+(the bug), `test_true_cross_merchant_suppression_breach_still_fires` (the
+guard must not over-suppress — the standard failure mode of every dedup fix,
+so it is asserted immediately next to it), and
+`test_merchant_contacting_before_its_own_optout_still_counts` (the temporal
+boundary). All three fail on the previous commit.
+
+**What I'd take from it.** My fixture tested the *scenario* and not the
+*condition*. `min_merchants` guaranteed a single-merchant ledger could never
+produce a network finding at all, so `N5` was passing through a completely
+different code path than the one it was written to defend. A test that passes
+via a mechanism other than the one it names is worth close to nothing, and
+from the outside it looks exactly like a test that works.
+
+Concretely: when a guard exists to disambiguate two entities, the fixture
+needs at least two entities in the interesting state. Mine had one.
+
+---
+
+## #11 — A repeat customer looked identical to discount laundering
+
+**What broke.** `CEILING_LAUNDERING_NETWORK` sums the discounts a customer
+received on one SKU across merchants and fires when the total exceeds the most
+permissive participating merchant's ceiling. It summed over **all of
+history**, unbounded:
+
+```
+MERCH_A offers 10% on SKU_X on 2020-01-01   (its own ceiling: 10%)
+MERCH_B offers 10% on SKU_X on 2026-01-01   (its own ceiling: 10%)
+
+actual: CEILING_LAUNDERING_NETWORK - "20.0% cumulative ... ceiling is 10.0%"
+```
+
+Two offers six years apart. That is a repeat customer, and the rule called it
+laundering with a citation attached.
+
+**Why.** Every fixture I wrote clustered its timestamps within a few days,
+because I was writing fixtures to demonstrate the abuse shape and abuse
+happens fast. So the *absence* of a time window was invisible: no test
+supplied inputs where it mattered. The sibling rule
+`CONTACT_FLOODING_NETWORK` had a rolling window from the first line I wrote,
+because "flooding" is audibly a rate. "Laundering" does not sound like a rate,
+so I never asked what its denominator was — and a cumulative sum with no
+denominator is not a rate, it is a lifetime total.
+
+Stacking is a claim about offers being *live together*. So the fix scopes the
+sum to the same rolling `window_days` the flooding rule already uses, and
+slides the window rather than only checking the last offer's trailing window
+— otherwise a burst followed by a quiet period escapes
+(`test_laundering_window_slides_and_finds_the_worst_burst`).
+
+The window is an operator policy choice, not a statutory quantity, so it now
+appears in the `Finding`'s citation *and* its evidence string. A threshold
+that shapes a verdict and is invisible in the output is an unfalsifiable
+claim; that is the lesson of #7 applied to a Finding instead of a README.
+
+**Tests.** `test_offers_outside_the_window_are_not_laundering`,
+`test_offers_inside_the_window_are_still_laundering`,
+`test_laundering_window_slides_and_finds_the_worst_burst`,
+`test_evidence_and_citation_disclose_the_window`.
+
+I also wrote `test_bystander_merchant_ceiling_does_not_leak` while chasing
+this, suspecting the ceiling `max()` had been hoisted out of the offer loop so
+that an unrelated permissive merchant could silence the rule. **It had not —
+that bug did not exist**, and I am recording the negative result because
+deleting it would leave a tidier-looking failure log than I earned. The test
+stays because hoisting that line is a natural-looking refactor that would
+disable the rule silently.
+
+**What I'd take from it.** Both #10 and #11 are the same defect in my *test
+design*, not in my rule logic: my fixtures all lived in the narrow region of
+input space where the abuse is obvious. The rules were never wrong about the
+cases I imagined. They were wrong about ordinary customers — a six-year-old
+purchase, a person who opted out at two merchants — and ordinary is the input
+distribution that actually shows up in production.
+
+The false-positive direction is the expensive one here. A missed violation
+costs a merchant some margin. A false `CEILING_LAUNDERING_NETWORK` on a loyal
+repeat customer is a compliance queue full of noise, which ends with the
+operator switching the tool off — and then the real findings are missed too.
+
+---
+
+## #12 — The first command in my README exited 2 and ran zero tests
+
+**What broke.** The README's headline claim is:
+
+> `make demo` — no API key, no network, no install beyond stdlib+pytest
+
+That is true of `make demo`. It was **false of `make test`**, which is listed
+four lines further down. In a clean environment with only pytest installed:
+
+```
+ERROR collecting tests/test_consortium.py
+E   ModuleNotFoundError: No module named 'hypothesis'
+!!!!!! Interrupted: 2 errors during collection !!!!!!
+2 errors in 0.45s
+```
+
+Not "72 tests skipped". Zero tests ran, exit code 2. `make all` — the target
+I tell a reviewer to use — aborted on its first line.
+
+**Why.** `hypothesis` is a genuine test dependency (it found the bugs in #3)
+and it is in `requirements.txt`. But an ImportError at module scope fails at
+*collection*, which is before any skip marker inside the module can execute.
+So the dependency was effectively mandatory while being documented as
+optional, and the failure mode was indistinguishable from the repo being
+broken. A reviewer who installed nothing and typed `make test` would conclude
+this project does not run, and they would be reading correct evidence.
+
+**The first fix was worse than the bug.** I added `pytest_ignore_collect` to
+drop the two hypothesis-importing modules when the library is absent. It
+worked and the summary line looked clean — and it silently discarded the
+**16 deterministic tests** in `test_consortium.py`, including the phantom-join
+regressions that pin #9. To rescue two property tests I had thrown away the
+tests that matter most, and the output gave no hint of it.
+
+The shipped fix is `tests/_hypothesis_compat.py`: with hypothesis installed it
+re-exports the real library unchanged; without it, `@given` tests become
+explicit skips carrying an install hint, and every deterministic test in the
+same file still runs.
+
+```
+before:  0 tests run, exit 2
+after:   368 passed, 87 skipped, exit 0   (bare stdlib + pytest)
+         383 passed, 72 skipped, exit 0   (full environment)
+```
+
+`test_optional_dependency_shim_reexports_the_real_library` asserts
+`compat.given is hypothesis.given`, because the real danger of a shim is the
+opposite of the original bug: a stub that silently replaces a working test
+engine turns 72 property tests into no-ops that still report as *passing*. A
+skip is visible in the summary. A false pass is not.
+
+**What I'd take from it.** This is #7 again — a README claim the repo could
+not back — except that this time the claim was about the repo's own first
+command, which makes it the one a reviewer verifies first and for free. I had
+checked that `make demo` honoured it and never checked `make test`, because I
+had hypothesis installed and had done since day one. My development
+environment was a permanent, invisible exception to my own documented
+contract.
+
+So the claim now has a test: `test_readme_stdlib_claim_names_its_own_exception`.
+And the honest version of the claim is in the README — not "needs nothing",
+but "needs nothing; the property tests want hypothesis and say so when it is
+missing".
