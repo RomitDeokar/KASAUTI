@@ -309,7 +309,7 @@ NOT_CHECKED.md     what this does not prove
 
 ## Setup
 
-Python 3.10+. Runtime dependencies: **none** beyond the standard library.
+Python 3.10+ (verified on 3.11 and 3.13). Runtime dependencies: **none** beyond the standard library. MIT licensed.
 
 ```bash
 pip install -r requirements.txt   # pytest + hypothesis, for tests only
